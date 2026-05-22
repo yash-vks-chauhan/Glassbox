@@ -50,6 +50,7 @@ async def rate_limit(request: Request, call_next):
             content={
                 "detail": "GlassBox is busy. Please wait a minute and try again."
             },
+            headers={"Access-Control-Allow-Origin": "*"},
         )
     window.append(now)
     return await call_next(request)

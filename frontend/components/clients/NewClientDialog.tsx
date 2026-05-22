@@ -89,7 +89,7 @@ function asAumNumber(raw: string): number {
 }
 
 type Props = {
-  trigger?: React.ReactNode;
+  trigger?: React.ReactElement;
   onCreated?: (client: ClientRecord) => void;
 };
 

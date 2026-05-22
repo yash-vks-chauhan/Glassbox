@@ -8,7 +8,7 @@ import { PageContainer, PageHeader } from "@/components/PageContainer";
 import { OutcomeBadge } from "@/components/OutcomeBadge";
 import { Input } from "@/components/ui/input";
 import { getAuditSummaries, type AuditSummary } from "@/lib/api";
-import { useClients } from "@/lib/clients";
+import { useClients } from "@/lib/clients-hooks";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function ThreadsPage() {

@@ -18,7 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getAuditSummaries, type AuditSummary } from "@/lib/api";
-import { useClients } from "@/lib/clients";
+import { useClients } from "@/lib/clients-hooks";
 import { classify, type OutcomeKind } from "@/lib/outcomes";
 import { cn } from "@/lib/utils";
 

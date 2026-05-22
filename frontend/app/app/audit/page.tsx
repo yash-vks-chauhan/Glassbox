@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getAuditSummaries, type AuditSummary } from "@/lib/api";
-import { useClients } from "@/lib/clients";
+import { useClients } from "@/lib/clients-hooks";
 import { classify, type OutcomeKind } from "@/lib/outcomes";
 
 type DateRange = "24h" | "7d" | "30d" | "all";

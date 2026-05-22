@@ -20,7 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { getAudit, type AuditDetail } from "@/lib/api";
-import { useClients } from "@/lib/clients";
+import { useClients } from "@/lib/clients-hooks";
 import { classify } from "@/lib/outcomes";
 import { cn } from "@/lib/utils";
 

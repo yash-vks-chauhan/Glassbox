@@ -6,7 +6,7 @@ import { ClientContextBar } from "@/components/clients/ClientContextBar";
 import { ClientMissingState } from "@/components/clients/ClientMissingState";
 import { Conversation } from "@/components/conversation/Conversation";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useClient } from "@/lib/clients";
+import { useClient } from "@/lib/clients-hooks";
 
 export default function ClientAskPage({
   params,

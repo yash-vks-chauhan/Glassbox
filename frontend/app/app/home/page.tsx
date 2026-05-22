@@ -19,7 +19,7 @@ import {
   type AuditSummary,
   type MetricsSummary,
 } from "@/lib/api";
-import { useClients } from "@/lib/clients";
+import { useClients } from "@/lib/clients-hooks";
 import { classify } from "@/lib/outcomes";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -30,8 +30,20 @@ export default function HomePage() {
   const [audits, setAudits] = useState<AuditSummary[] | null>(null);
   const [metrics, setMetrics] = useState<MetricsSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [todayLabel, setTodayLabel] = useState("Today");
+  const [nowMs, setNowMs] = useState<number | null>(null);
 
   useEffect(() => {
+    setTodayLabel(
+      new Intl.DateTimeFormat("en-US", {
+        weekday: "long",
+        month: "short",
+        day: "numeric",
+        timeZone: "Europe/Zurich",
+      }).format(new Date()),
+    );
+    setNowMs(Date.now());
+
     let active = true;
     async function load() {
       try {
@@ -68,7 +80,7 @@ export default function HomePage() {
           <span className="flex items-baseline gap-2">
             Good morning, Sarah
             <span className="font-sans text-sm font-normal text-muted-foreground">
-              · {new Date().toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
+              · {todayLabel}
             </span>
           </span>
         }
@@ -93,9 +105,14 @@ export default function HomePage() {
         <KpiCard
           icon={ScanLine}
           label="IPS updated past 7 days"
-          value={clients.filter((c) =>
-            new Date(c.ipsUpdatedAt).getTime() > Date.now() - 7 * 24 * 3600_000,
-          ).length}
+          value={
+            nowMs === null
+              ? "—"
+              : clients.filter((c) =>
+                  new Date(c.ipsUpdatedAt).getTime() >
+                  nowMs - 7 * 24 * 3600_000,
+                ).length
+          }
           hint="Re-check answers issued before the update"
           href="/app/library"
         />

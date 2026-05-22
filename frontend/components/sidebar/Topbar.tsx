@@ -47,10 +47,20 @@ function crumbsFor(pathname: string) {
 
 export function Topbar() {
   const pathname = usePathname() || "";
-  const [now, setNow] = useState(() => new Date());
+  const [timeLabel, setTimeLabel] = useState("--:--");
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 60_000);
+    const formatTime = () =>
+      new Intl.DateTimeFormat("en-GB", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+        timeZone: "Europe/Zurich",
+      }).format(new Date());
+    const updateTime = () => setTimeLabel(formatTime());
+
+    updateTime();
+    const timer = window.setInterval(updateTime, 60_000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -95,7 +105,7 @@ export function Topbar() {
 
       <div className="flex items-center gap-1.5">
         <span className="hidden text-xs text-muted-foreground tabular md:inline">
-          {now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} CET
+          {timeLabel} CET
         </span>
         <RoleSwitcher />
         <Button variant="ghost" size="icon" className="h-9 w-9 rounded-md" aria-label="Notifications">

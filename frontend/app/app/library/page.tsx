@@ -6,7 +6,7 @@ import { BookOpen, CalendarDays, FileText, Upload } from "lucide-react";
 import { PageContainer, PageHeader } from "@/components/PageContainer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useClients } from "@/lib/clients";
+import { useClients } from "@/lib/clients-hooks";
 import { cn } from "@/lib/utils";
 
 type DocKind = "ips" | "factsheet" | "regulation";

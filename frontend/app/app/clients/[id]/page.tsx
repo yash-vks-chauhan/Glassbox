@@ -18,7 +18,8 @@ import { ClientContextBar } from "@/components/clients/ClientContextBar";
 import { OutcomeBadge } from "@/components/OutcomeBadge";
 import { ClientMissingState } from "@/components/clients/ClientMissingState";
 import { getAuditSummaries, type AuditSummary } from "@/lib/api";
-import { formatAUM, useClient } from "@/lib/clients";
+import { formatAUM } from "@/lib/clients";
+import { useClient } from "@/lib/clients-hooks";
 import { classify } from "@/lib/outcomes";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -28,7 +29,10 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
   const [audits, setAudits] = useState<AuditSummary[] | null>(null);
 
   useEffect(() => {
-    if (!client) return;
+    if (!client) {
+      setAudits(null);
+      return;
+    }
     let active = true;
     getAuditSummaries(200)
       .then((rows) => {
@@ -42,11 +46,6 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
     };
   }, [client?.id]);
 
-  if (!client) {
-    if (!isHydrated) return <ClientLoadingState />;
-    return <ClientMissingState id={id} />;
-  }
-
   const stats = useMemo(() => {
     if (!audits) return null;
     const total = audits.length;
@@ -55,6 +54,11 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
     const grounded = audits.filter((a) => classify(a) === "answered").length;
     return { total, flagged, refused, grounded };
   }, [audits]);
+
+  if (!client) {
+    if (!isHydrated) return <ClientLoadingState />;
+    return <ClientMissingState id={id} />;
+  }
 
   return (
     <>
