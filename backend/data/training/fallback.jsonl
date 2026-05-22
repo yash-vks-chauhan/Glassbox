@@ -1,0 +1,160 @@
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "single_position", "question": "Can client C003 put 20% into F100?", "verdict": "allowed"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "single_position", "question": "Can client C003 put 20% into F100?", "verdict": "allowed"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "single_position", "question": "Can client C003 put 20% into F100?", "verdict": "allowed"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "single_position", "question": "Can client C003 put 20% into F100?", "verdict": "allowed"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "single_position", "question": "Can client C003 put 20% into F100?", "verdict": "allowed"}
+{"client_rule_hit": "single_position", "question": "Can client C003 put 20% into F100?", "verdict": "allowed"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "single_position", "question": "Can client C003 put 20% into F100?", "verdict": "allowed"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "single_position", "question": "Can client C003 put 20% into F100?", "verdict": "allowed"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "single_position", "question": "Can client C003 put 20% into F100?", "verdict": "allowed"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "single_position", "question": "Can client C003 put 20% into F100?", "verdict": "allowed"}
+{"client_rule_hit": "single_position", "question": "Can client C003 put 20% into F100?", "verdict": "allowed"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "single_position", "question": "Can client C003 put 20% into F100?", "verdict": "allowed"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "single_position", "question": "Can client C003 put 20% into F100?", "verdict": "allowed"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "single_position", "question": "Can client C003 put 20% into F100?", "verdict": "allowed"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "single_position", "question": "Can client C003 put 20% into F100?", "verdict": "allowed"}
+{"client_rule_hit": "single_position", "question": "Can client C003 put 20% into F100?", "verdict": "allowed"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "single_position", "question": "Can client C003 put 20% into F100?", "verdict": "allowed"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "single_position", "question": "Can client C003 put 20% into F100?", "verdict": "allowed"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "single_position", "question": "Can client C003 put 20% into F100?", "verdict": "allowed"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "single_position", "question": "Can client C003 put 20% into F100?", "verdict": "allowed"}
+{"client_rule_hit": "single_position", "question": "Can client C003 put 20% into F100?", "verdict": "allowed"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "single_position", "question": "Can client C003 put 20% into F100?", "verdict": "allowed"}
+{"client_rule_hit": "single_position", "question": "Can client C003 put 20% into F100?", "verdict": "allowed"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "single_position", "question": "Can client C003 put 20% into F100?", "verdict": "allowed"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "excluded_sector", "question": "Can C002 buy cryptocurrency exposure?", "verdict": "violation"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "risk_profile", "question": "Is F200 low risk for C002?", "verdict": "allowed"}
+{"client_rule_hit": "none", "question": "What is the German capital gains tax rate?", "verdict": "escalate"}
+{"client_rule_hit": "single_position", "question": "Can client C001 put 40% into fund F100?", "verdict": "violation"}

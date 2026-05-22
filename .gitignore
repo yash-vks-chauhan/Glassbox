@@ -1,0 +1,28 @@
+.DS_Store
+.env
+.env.local
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local runtime data
+backend/glassbox_local.db
+backend/chroma_store/
+output/
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.vercel/
+frontend/test-results/
+*.tsbuildinfo
+
+# Logs
+*.log
+.playwright-cli/

@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: glassbox-postgres
+    environment:
+      POSTGRES_DB: glassbox
+      POSTGRES_USER: glassbox
+      POSTGRES_PASSWORD: glassbox
+    ports:
+      - "5432:5432"
+    volumes:
+      - glassbox-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U glassbox -d glassbox"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  glassbox-postgres:

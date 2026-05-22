@@ -1,0 +1,218 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Ink + parchment palette — warm off-white background, deep ink-navy primary. */
+    --background: 36 28% 97%;
+    --foreground: 220 35% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 35% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 35% 11%;
+
+    --primary: 218 58% 20%;
+    --primary-foreground: 36 28% 97%;
+
+    --secondary: 34 18% 92%;
+    --secondary-foreground: 220 35% 14%;
+
+    --muted: 34 14% 94%;
+    --muted-foreground: 220 12% 38%;
+
+    --accent: 34 28% 88%;
+    --accent-foreground: 218 58% 20%;
+
+    --destructive: 0 65% 42%;
+    --destructive-foreground: 36 28% 97%;
+
+    --border: 34 14% 86%;
+    --input: 34 14% 86%;
+    --ring: 218 58% 30%;
+
+    --radius: 0.625rem;
+    --radius-sm: calc(var(--radius) - 4px);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-lg: var(--radius);
+
+    /* Semantic outcome colors — never primary, never traffic-light. */
+    --state-grounded: 175 35% 30%;       /* deep teal */
+    --state-grounded-foreground: 0 0% 100%;
+    --state-grounded-soft: 175 30% 92%;
+    --state-grounded-soft-foreground: 175 40% 22%;
+
+    --state-flagged: 34 70% 42%;          /* burnt amber */
+    --state-flagged-foreground: 0 0% 100%;
+    --state-flagged-soft: 34 70% 92%;
+    --state-flagged-soft-foreground: 28 70% 28%;
+
+    --state-refused: 220 14% 32%;         /* ink-gray */
+    --state-refused-foreground: 0 0% 100%;
+    --state-refused-soft: 220 14% 92%;
+    --state-refused-soft-foreground: 220 18% 24%;
+
+    --state-fallback: 260 25% 42%;        /* muted plum */
+    --state-fallback-foreground: 0 0% 100%;
+    --state-fallback-soft: 260 30% 94%;
+    --state-fallback-soft-foreground: 260 30% 30%;
+
+    /* Chart palette — five non-traffic-light hues that survive side-by-side. */
+    --chart-1: 218 58% 20%;   /* ink-navy */
+    --chart-2: 175 35% 30%;   /* deep teal */
+    --chart-3: 34 70% 42%;    /* burnt amber */
+    --chart-4: 260 25% 42%;   /* muted plum */
+    --chart-5: 220 12% 55%;   /* slate */
+
+    --sidebar: 36 30% 96%;
+    --sidebar-foreground: 220 35% 11%;
+    --sidebar-primary: 218 58% 20%;
+    --sidebar-primary-foreground: 36 28% 97%;
+    --sidebar-accent: 34 22% 90%;
+    --sidebar-accent-foreground: 218 58% 20%;
+    --sidebar-border: 34 14% 84%;
+    --sidebar-ring: 218 58% 30%;
+  }
+
+  .dark {
+    --background: 220 28% 7%;
+    --foreground: 36 22% 94%;
+
+    --card: 220 24% 10%;
+    --card-foreground: 36 22% 94%;
+
+    --popover: 220 24% 10%;
+    --popover-foreground: 36 22% 94%;
+
+    --primary: 218 70% 78%;
+    --primary-foreground: 220 28% 7%;
+
+    --secondary: 220 18% 16%;
+    --secondary-foreground: 36 22% 94%;
+
+    --muted: 220 18% 16%;
+    --muted-foreground: 36 12% 70%;
+
+    --accent: 220 22% 20%;
+    --accent-foreground: 218 70% 78%;
+
+    --destructive: 0 58% 52%;
+    --destructive-foreground: 36 28% 97%;
+
+    --border: 220 18% 18%;
+    --input: 220 18% 18%;
+    --ring: 218 70% 78%;
+
+    --state-grounded: 175 40% 62%;
+    --state-grounded-foreground: 220 28% 7%;
+    --state-grounded-soft: 175 30% 18%;
+    --state-grounded-soft-foreground: 175 50% 75%;
+
+    --state-flagged: 34 80% 64%;
+    --state-flagged-foreground: 220 28% 7%;
+    --state-flagged-soft: 34 50% 18%;
+    --state-flagged-soft-foreground: 34 80% 78%;
+
+    --state-refused: 220 12% 70%;
+    --state-refused-foreground: 220 28% 7%;
+    --state-refused-soft: 220 18% 18%;
+    --state-refused-soft-foreground: 220 14% 78%;
+
+    --state-fallback: 260 45% 75%;
+    --state-fallback-foreground: 220 28% 7%;
+    --state-fallback-soft: 260 30% 20%;
+    --state-fallback-soft-foreground: 260 50% 82%;
+
+    --chart-1: 218 70% 78%;
+    --chart-2: 175 55% 60%;
+    --chart-3: 34 80% 64%;
+    --chart-4: 260 45% 75%;
+    --chart-5: 220 12% 65%;
+
+    --sidebar: 220 26% 9%;
+    --sidebar-foreground: 36 22% 94%;
+    --sidebar-primary: 218 70% 78%;
+    --sidebar-primary-foreground: 220 28% 7%;
+    --sidebar-accent: 220 22% 16%;
+    --sidebar-accent-foreground: 218 70% 78%;
+    --sidebar-border: 220 18% 18%;
+    --sidebar-ring: 218 70% 78%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    @apply font-sans;
+  }
+
+  body {
+    @apply min-h-screen bg-background text-foreground antialiased;
+    font-feature-settings: "cv11", "ss01", "ss03";
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  ::selection {
+    background: hsl(var(--accent));
+    color: hsl(var(--accent-foreground));
+  }
+
+  /* Subtle parchment grain — reads as paper at distance, vanishes up close. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.5;
+    background-image: radial-gradient(hsl(34 22% 88% / 0.5) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+
+  .dark body::before {
+    opacity: 0.25;
+    background-image: radial-gradient(hsl(220 14% 22% / 0.6) 1px, transparent 1px);
+  }
+
+  /* Numerals tabular by default — finance figures should align. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  .state-grounded {
+    background: hsl(var(--state-grounded-soft));
+    color: hsl(var(--state-grounded-soft-foreground));
+    border-color: hsl(var(--state-grounded) / 0.3);
+  }
+  .state-flagged {
+    background: hsl(var(--state-flagged-soft));
+    color: hsl(var(--state-flagged-soft-foreground));
+    border-color: hsl(var(--state-flagged) / 0.3);
+  }
+  .state-refused {
+    background: hsl(var(--state-refused-soft));
+    color: hsl(var(--state-refused-soft-foreground));
+    border-color: hsl(var(--state-refused) / 0.3);
+  }
+  .state-fallback {
+    background: hsl(var(--state-fallback-soft));
+    color: hsl(var(--state-fallback-soft-foreground));
+    border-color: hsl(var(--state-fallback) / 0.3);
+  }
+
+  .border-state-grounded { border-color: hsl(var(--state-grounded)); }
+  .border-state-flagged { border-color: hsl(var(--state-flagged)); }
+  .border-state-refused { border-color: hsl(var(--state-refused)); }
+  .border-state-fallback { border-color: hsl(var(--state-fallback)); }
+}

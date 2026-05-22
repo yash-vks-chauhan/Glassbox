@@ -1,0 +1,8 @@
+{"q":"Can client C001 put 40% into fund F100?","client_id":"C001","expect":"refused_or_flag","reason":"violates 25% single-position limit"}
+{"q":"Is fund F100 suitable for client C001?","client_id":"C001","expect":"answered","reason":"risk mismatch should be explained from sources"}
+{"q":"What is the capital gains tax rate in Germany?","client_id":"C001","expect":"refused","reason":"no tax document in corpus"}
+{"q":"What is the single position limit for client C001?","client_id":"C001","expect":"answered","reason":"C001 IPS states 25%"}
+{"q":"Can client C002 invest in cryptocurrency?","client_id":"C002","expect":"refused_or_flag","reason":"C002 excludes cryptocurrency"}
+{"q":"Does fund F200 have low risk?","client_id":"C001","expect":"answered","reason":"F200 factsheet says low risk"}
+{"q":"Can client C003 hold a high-risk equity fund?","client_id":"C003","expect":"answered","reason":"C003 may hold high-risk equity funds if constraints are met"}
+{"q":"Should we escalate when documents do not answer the question?","client_id":"C001","expect":"answered","reason":"suitability regulation says escalate"}

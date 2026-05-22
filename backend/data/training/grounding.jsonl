@@ -1,0 +1,320 @@
+{"claim": "Fund F300 can create sector concentration risk for conservative and moderate clients.", "label": 1, "source": "Fund F300 can create sector concentration risk for conservative and moderate clients."}
+{"claim": "A recommendation should consider whether the investment creates prohibited sector or region exposure.", "label": 0, "source": "Fund F300 can create sector concentration risk for conservative and moderate clients."}
+{"claim": "High-risk equity funds require human review before being recommended to Client C002.", "label": 0, "source": "Client C002 must not invest in tobacco, firearms, gambling, or cryptocurrency sectors."}
+{"claim": "Client C001 has a moderate risk profile.", "label": 0, "source": "A recommendation should consider liquidity requirements documented in the client's mandate."}
+{"claim": "A recommendation should consider liquidity requirements documented in the client's mandate. This unrelated sentence is unsupported.", "label": 0, "source": "A recommendation should consider liquidity requirements documented in the client's mandate."}
+{"claim": "Fund F100 has exposure to technology and financials sectors.", "label": 0, "source": "Client C001 must not invest in tobacco or firearms sectors."}
+{"claim": "An investment recommendation should be consistent with the client's documented risk profile.", "label": 0, "source": "Client C001 is governed by Switzerland and United States suitability constraints."}
+{"claim": "Fund F200 invests globally in fixed income securities.", "label": 0, "source": "Client C002 must not invest in tobacco, firearms, gambling, or cryptocurrency sectors."}
+{"claim": "No single position may exceed 25% of portfolio value for Client C001.", "label": 0, "source": "High-risk equity funds require human review before being recommended to Client C002."}
+{"claim": "Fund F300 can create sector concentration risk for conservative and moderate clients.", "label": 0, "source": "Client C001 has a moderate risk profile."}
+{"claim": "Client C001 is governed by Switzerland and United States suitability constraints.", "label": 1, "source": "Client C001 is governed by Switzerland and United States suitability constraints."}
+{"claim": "Fund F300 can create sector concentration risk for conservative and moderate clients.", "label": 0, "source": "Fund F100 has a high risk level."}
+{"claim": "Client C001 has a moderate risk profile.", "label": 0, "source": "Fund F300 can create sector concentration risk for conservative and moderate clients."}
+{"claim": "Fund F200 invests globally in fixed income securities.", "label": 0, "source": "At least 15% of Client C001's portfolio must remain liquid within 30 days."}
+{"claim": "No single position may exceed 25% of portfolio value for Client C001.", "label": 0, "source": "Fund F100 invests in emerging markets."}
+{"claim": "Client C003 has an aggressive risk profile.", "label": 0, "source": "No single position may exceed 15% of portfolio value for Client C002."}
+{"claim": "Fund F100 is the Global Emerging Markets Equity Fund.", "label": 1, "source": "Fund F100 is the Global Emerging Markets Equity Fund."}
+{"claim": "Client C12 must not invest in tobacco, firearms, gambling, or cryptocurrency sectors.", "label": 0, "source": "Client C002 must not invest in tobacco, firearms, gambling, or cryptocurrency sectors."}
+{"claim": "Client C001 must not invest in tobacco or firearms sectors.", "label": 0, "source": "No single position may exceed 35% of portfolio value for Client C003."}
+{"claim": "Fund F300 has concentrated exposure to the technology sector.", "label": 0, "source": "No single position may exceed 15% of portfolio value for Client C002."}
+{"claim": "Client C001 must not invest in tobacco or firearms sectors.", "label": 1, "source": "Client C001 must not invest in tobacco or firearms sectors."}
+{"claim": "Fund F200 is designed for capital preservation and income.", "label": 0, "source": "Fund F100 has a high risk level."}
+{"claim": "No single position may exceed 35% of portfolio value for Client C003.", "label": 0, "source": "A recommendation should consider liquidity requirements documented in the client's mandate."}
+{"claim": "Client C002 has a conservative risk profile.", "label": 0, "source": "Fund F200 has exposure to government bonds and investment grade credit."}
+{"claim": "Fund F110 has exposure to technology and financials sectors.", "label": 0, "source": "Fund F100 has exposure to technology and financials sectors."}
+{"claim": "A recommendation should consider concentration limits in the client's investment mandate.", "label": 0, "source": "Client C001 has a moderate risk profile."}
+{"claim": "Fund F200 is designed for capital preservation and income.", "label": 0, "source": "Fund F300 has a high risk level."}
+{"claim": "When available documents do not answer a suitability question, the case should be escalated to a human reviewer.", "label": 1, "source": "When available documents do not answer a suitability question, the case should be escalated to a human reviewer."}
+{"claim": "Fund F200 is designed for capital preservation and income.", "label": 1, "source": "Fund F200 is designed for capital preservation and income."}
+{"claim": "At least 30% of Client C002's portfolio must remain liquid within 30 days.", "label": 0, "source": "A recommendation should consider liquidity requirements documented in the client's mandate."}
+{"claim": "Fund F100 has exposure to technology and financials sectors.", "label": 1, "source": "Fund F100 has exposure to technology and financials sectors."}
+{"claim": "Fund F100 is the Global Emerging Markets Equity Fund.", "label": 0, "source": "Fund F200 has exposure to government bonds and investment grade credit."}
+{"claim": "High-risk equity funds require human review before being recommended to Client C002.", "label": 0, "source": "Fund F300 invests globally in equity securities."}
+{"claim": "Client C001 must not invest in Russia.", "label": 1, "source": "Client C001 must not invest in Russia."}
+{"claim": "Fund F200 has a low risk level.", "label": 0, "source": "Fund F100 invests in equity securities."}
+{"claim": "Fund F300 can create sector concentration risk for conservative and moderate clients.", "label": 0, "source": "Client C001 must not invest in Russia."}
+{"claim": "Fund F100 has a high risk level.", "label": 0, "source": "A recommendation should consider liquidity requirements documented in the client's mandate."}
+{"claim": "At least 10% of Client C003's portfolio must remain liquid within 30 days.", "label": 0, "source": "Fund F100 invests in equity securities."}
+{"claim": "Client C003 must not invest in Russia.", "label": 0, "source": "No single position may exceed 25% of portfolio value for Client C001."}
+{"claim": "Client C002 has a conservative risk profile.", "label": 0, "source": "Fund F100 has exposure to technology and financials sectors."}
+{"claim": "An investment recommendation should be consistent with the client's documented risk profile. This unrelated sentence is unsupported.", "label": 0, "source": "An investment recommendation should be consistent with the client's documented risk profile."}
+{"claim": "Fund F200 has exposure to government bonds and investment grade credit.", "label": 1, "source": "Fund F200 has exposure to government bonds and investment grade credit."}
+{"claim": "Client C003 has an aggressive risk profile.", "label": 0, "source": "High-risk equity funds require human review before being recommended to Client C002."}
+{"claim": "Client C002 must not invest in tobacco, firearms, gambling, or cryptocurrency sectors.", "label": 0, "source": "Client C002 must not invest in Russia or other sanctioned markets."}
+{"claim": "Fund F100 has exposure to technology and financials sectors.", "label": 0, "source": "Fund F100 is the Global Emerging Markets Equity Fund."}
+{"claim": "No single position may exceed 25% of portfolio value for Client C001.", "label": 0, "source": "A recommendation should consider liquidity requirements documented in the client's mandate."}
+{"claim": "Fund F100 invests in equity securities.", "label": 0, "source": "Client C001 has a moderate risk profile."}
+{"claim": "Fund F100 is the Global Emerging Markets Equity Fund.", "label": 0, "source": "Client C002 must not invest in Russia or other sanctioned markets."}
+{"claim": "High-risk equity funds require human review before being recommended to Client C12.", "label": 0, "source": "High-risk equity funds require human review before being recommended to Client C002."}
+{"claim": "At least 40% of Client C002's portfolio must remain liquid within 30 days.", "label": 0, "source": "At least 30% of Client C002's portfolio must remain liquid within 30 days."}
+{"claim": "Fund F100 has a high risk level.", "label": 0, "source": "A recommendation should consider liquidity requirements documented in the client's mandate."}
+{"claim": "Fund F300 has a high risk level.", "label": 0, "source": "Client C001 must not invest in tobacco or firearms sectors."}
+{"claim": "Fund F200 is the Global Bond Fund.", "label": 0, "source": "Fund F300 can create sector concentration risk for conservative and moderate clients."}
+{"claim": "Fund F200 has a low risk level.", "label": 0, "source": "Client C002 must not invest in Russia or other sanctioned markets."}
+{"claim": "Client C001 is governed by Switzerland and United States suitability constraints.", "label": 0, "source": "Client C001 has a moderate risk profile."}
+{"claim": "Fund F100 has exposure to technology and financials sectors.", "label": 0, "source": "No single position may exceed 15% of portfolio value for Client C002."}
+{"claim": "Fund F200 has exposure to government bonds and investment grade credit.", "label": 0, "source": "At least 30% of Client C002's portfolio must remain liquid within 30 days."}
+{"claim": "Client C003 must not invest in tobacco.", "label": 0, "source": "A recommendation should consider liquidity requirements documented in the client's mandate."}
+{"claim": "Client C002 has a conservative risk profile.", "label": 0, "source": "Fund F200 is the Global Bond Fund."}
+{"claim": "Fund F210 invests globally in fixed income securities.", "label": 0, "source": "Fund F200 invests globally in fixed income securities."}
+{"claim": "No single position may exceed 15% of portfolio value for Client C002.", "label": 1, "source": "No single position may exceed 15% of portfolio value for Client C002."}
+{"claim": "Fund F300 has a high risk level.", "label": 0, "source": "When available documents do not answer a suitability question, the case should be escalated to a human reviewer."}
+{"claim": "Fund F200 invests globally in fixed income securities.", "label": 1, "source": "Fund F200 invests globally in fixed income securities."}
+{"claim": "Client C11 must not invest in tobacco or firearms sectors.", "label": 0, "source": "Client C001 must not invest in tobacco or firearms sectors."}
+{"claim": "Fund F300 has concentrated exposure to the technology sector.", "label": 0, "source": "Client C001 must not invest in tobacco or firearms sectors."}
+{"claim": "No single position may exceed 35% of portfolio value for Client C003.", "label": 0, "source": "Fund F300 has concentrated exposure to the technology sector."}
+{"claim": "Fund F300 invests globally in equity securities.", "label": 0, "source": "Fund F300 has concentrated exposure to the technology sector."}
+{"claim": "At least 15% of Client C001's portfolio must remain liquid within 30 days.", "label": 0, "source": "Fund F300 is the Technology Sector Equity Fund."}
+{"claim": "Client C003 must not invest in tobacco.", "label": 1, "source": "Client C003 must not invest in tobacco."}
+{"claim": "At least 10% of Client C003's portfolio must remain liquid within 30 days.", "label": 0, "source": "A recommendation should consider concentration limits in the client's investment mandate."}
+{"claim": "Fund F200 has a low risk level.", "label": 0, "source": "Fund F200 is the Global Bond Fund."}
+{"claim": "High-risk equity funds require human review before being recommended to Client C002.", "label": 1, "source": "High-risk equity funds require human review before being recommended to Client C002."}
+{"claim": "Fund F200 has a low risk level.", "label": 0, "source": "Fund F100 has exposure to technology and financials sectors."}
+{"claim": "Fund F200 has a low risk level.", "label": 0, "source": "Fund F200 invests globally in fixed income securities."}
+{"claim": "Fund F300 invests globally in equity securities.", "label": 1, "source": "Fund F300 invests globally in equity securities."}
+{"claim": "Fund F200 has exposure to government bonds and investment grade credit.", "label": 0, "source": "An investment recommendation should be consistent with the client's documented risk profile."}
+{"claim": "No single position may exceed 25% of portfolio value for Client C001.", "label": 0, "source": "Fund F300 is the Technology Sector Equity Fund."}
+{"claim": "Fund F200 has a low risk level.", "label": 0, "source": "No single position may exceed 25% of portfolio value for Client C001."}
+{"claim": "Fund F200 is the Global Bond Fund.", "label": 0, "source": "No single position may exceed 35% of portfolio value for Client C003."}
+{"claim": "Fund F200 has a low risk level.", "label": 0, "source": "Fund F200 is designed for capital preservation and income."}
+{"claim": "Fund F200 is the Global Bond Fund.", "label": 0, "source": "A recommendation should consider liquidity requirements documented in the client's mandate."}
+{"claim": "Fund F300 has concentrated exposure to the technology sector.", "label": 0, "source": "A recommendation should consider whether the investment creates prohibited sector or region exposure."}
+{"claim": "No single position may exceed 35% of portfolio value for Client C001.", "label": 0, "source": "No single position may exceed 25% of portfolio value for Client C001."}
+{"claim": "No single position may exceed 25% of portfolio value for Client C002.", "label": 0, "source": "No single position may exceed 15% of portfolio value for Client C002."}
+{"claim": "Fund F200 has exposure to government bonds and investment grade credit.", "label": 0, "source": "Fund F300 has concentrated exposure to the technology sector."}
+{"claim": "Client C003 may hold high-risk equity funds when concentration and liquidity limits are satisfied.", "label": 0, "source": "Fund F300 has a high risk level."}
+{"claim": "Fund F310 has a high risk level.", "label": 0, "source": "Fund F300 has a high risk level."}
+{"claim": "Fund F300 invests globally in equity securities.", "label": 0, "source": "Fund F200 is designed for capital preservation and income."}
+{"claim": "When available documents do not answer a suitability question, the case should be escalated to a human reviewer.", "label": 0, "source": "Client C001 is governed by Switzerland and United States suitability constraints."}
+{"claim": "Fund F100 invests in equity securities.", "label": 0, "source": "Fund F200 has exposure to government bonds and investment grade credit."}
+{"claim": "Client C12 has a conservative risk profile.", "label": 0, "source": "Client C002 has a conservative risk profile."}
+{"claim": "Client C002 must not invest in tobacco, firearms, gambling, or cryptocurrency sectors.", "label": 1, "source": "Client C002 must not invest in tobacco, firearms, gambling, or cryptocurrency sectors."}
+{"claim": "Fund F300 invests globally in equity securities.", "label": 0, "source": "A recommendation should consider whether the investment creates prohibited sector or region exposure."}
+{"claim": "No single position may exceed 25% of portfolio value for Client C001.", "label": 0, "source": "Fund F300 has concentrated exposure to the technology sector."}
+{"claim": "A recommendation should consider liquidity requirements documented in the client's mandate.", "label": 1, "source": "A recommendation should consider liquidity requirements documented in the client's mandate."}
+{"claim": "Fund F300 is the Technology Sector Equity Fund.", "label": 0, "source": "Client C002 must not invest in Russia or other sanctioned markets."}
+{"claim": "Client C001 must not invest in tobacco or firearms sectors.", "label": 0, "source": "Fund F300 has concentrated exposure to the technology sector."}
+{"claim": "A recommendation should consider liquidity requirements documented in the client's mandate.", "label": 0, "source": "Client C003 must not invest in tobacco."}
+{"claim": "At least 25% of Client C001's portfolio must remain liquid within 30 days.", "label": 0, "source": "At least 15% of Client C001's portfolio must remain liquid within 30 days."}
+{"claim": "Fund F210 is the Global Bond Fund.", "label": 0, "source": "Fund F200 is the Global Bond Fund."}
+{"claim": "Fund F100 is the Global Emerging Markets Equity Fund.", "label": 0, "source": "A recommendation should consider concentration limits in the client's investment mandate."}
+{"claim": "A recommendation should consider liquidity requirements documented in the client's mandate.", "label": 0, "source": "Fund F200 is the Global Bond Fund."}
+{"claim": "Fund F300 has concentrated exposure to the technology sector.", "label": 0, "source": "No single position may exceed 35% of portfolio value for Client C003."}
+{"claim": "Client C003 may hold high-risk equity funds when concentration and liquidity limits are satisfied.", "label": 0, "source": "Client C003 must not invest in tobacco."}
+{"claim": "Fund F300 can create sector concentration risk for conservative and moderate clients.", "label": 0, "source": "Fund F100 invests in emerging markets."}
+{"claim": "At least 15% of Client C001's portfolio must remain liquid within 30 days.", "label": 0, "source": "Fund F100 has exposure to technology and financials sectors."}
+{"claim": "At least 20% of Client C003's portfolio must remain liquid within 30 days.", "label": 0, "source": "At least 10% of Client C003's portfolio must remain liquid within 30 days."}
+{"claim": "At least 15% of Client C001's portfolio must remain liquid within 30 days.", "label": 0, "source": "Client C003 may hold high-risk equity funds when concentration and liquidity limits are satisfied."}
+{"claim": "Client C002 must not invest in Russia or other sanctioned markets.", "label": 0, "source": "A recommendation should consider whether the investment creates prohibited sector or region exposure."}
+{"claim": "Client C001 must not invest in Russia.", "label": 0, "source": "Client C003 has an aggressive risk profile."}
+{"claim": "Fund F300 has a high risk level.", "label": 0, "source": "Fund F100 has exposure to technology and financials sectors."}
+{"claim": "Client C002 has a conservative risk profile.", "label": 0, "source": "Fund F100 has a high risk level."}
+{"claim": "Client C003 must not invest in tobacco.", "label": 0, "source": "Fund F300 has concentrated exposure to the technology sector."}
+{"claim": "Fund F200 has exposure to government bonds and investment grade credit.", "label": 0, "source": "No single position may exceed 35% of portfolio value for Client C003."}
+{"claim": "Fund F100 invests in equity securities.", "label": 0, "source": "A recommendation should consider whether the investment creates prohibited sector or region exposure."}
+{"claim": "Client C002 must not invest in tobacco, firearms, gambling, or cryptocurrency sectors.", "label": 0, "source": "Fund F200 has a low risk level."}
+{"claim": "Fund F300 has a high risk level.", "label": 1, "source": "Fund F300 has a high risk level."}
+{"claim": "Fund F300 has a high risk level.", "label": 0, "source": "At least 15% of Client C001's portfolio must remain liquid within 30 days."}
+{"claim": "Client C003 may hold high-risk equity funds when concentration and liquidity limits are satisfied.", "label": 0, "source": "Fund F200 has a low risk level."}
+{"claim": "No single position may exceed 25% of portfolio value for Client C001.", "label": 0, "source": "Fund F200 invests globally in fixed income securities."}
+{"claim": "At least 10% of Client C003's portfolio must remain liquid within 30 days.", "label": 1, "source": "At least 10% of Client C003's portfolio must remain liquid within 30 days."}
+{"claim": "At least 30% of Client C002's portfolio must remain liquid within 30 days.", "label": 0, "source": "Fund F300 is the Technology Sector Equity Fund."}
+{"claim": "Client C001 is governed by Switzerland and United States suitability constraints.", "label": 0, "source": "Fund F100 invests in equity securities."}
+{"claim": "Client C003 may hold high-risk equity funds when concentration and liquidity limits are satisfied.", "label": 0, "source": "Fund F200 invests globally in fixed income securities."}
+{"claim": "High-risk equity funds require human review before being recommended to Client C002.", "label": 0, "source": "Fund F100 has a high risk level."}
+{"claim": "Client C001 is governed by Switzerland and United States suitability constraints.", "label": 0, "source": "No single position may exceed 35% of portfolio value for Client C003."}
+{"claim": "Fund F300 invests globally in equity securities.", "label": 0, "source": "Client C001 is governed by Switzerland and United States suitability constraints."}
+{"claim": "Fund F200 is designed for capital preservation and income.", "label": 0, "source": "Fund F300 has concentrated exposure to the technology sector."}
+{"claim": "When available documents do not answer a suitability question, the case should be escalated to a human reviewer.", "label": 0, "source": "Client C003 has an aggressive risk profile."}
+{"claim": "At least 30% of Client C002's portfolio must remain liquid within 30 days.", "label": 0, "source": "Client C001 must not invest in tobacco or firearms sectors."}
+{"claim": "Fund F110 has a high risk level.", "label": 0, "source": "Fund F100 has a high risk level."}
+{"claim": "No single position may exceed 35% of portfolio value for Client C003.", "label": 0, "source": "At least 15% of Client C001's portfolio must remain liquid within 30 days."}
+{"claim": "Client C003 must not invest in Russia.", "label": 0, "source": "Fund F200 is the Global Bond Fund."}
+{"claim": "Fund F300 has concentrated exposure to the technology sector.", "label": 0, "source": "A recommendation should consider whether the investment creates prohibited sector or region exposure."}
+{"claim": "Fund F300 is the Technology Sector Equity Fund.", "label": 0, "source": "At least 15% of Client C001's portfolio must remain liquid within 30 days."}
+{"claim": "Fund F100 has exposure to technology and financials sectors.", "label": 0, "source": "Fund F300 is the Technology Sector Equity Fund."}
+{"claim": "Fund F300 has concentrated exposure to the technology sector.", "label": 0, "source": "No single position may exceed 25% of portfolio value for Client C001."}
+{"claim": "Fund F100 is the Global Emerging Markets Equity Fund.", "label": 0, "source": "Fund F300 has a high risk level."}
+{"claim": "Client C002 must not invest in Russia or other sanctioned markets.", "label": 0, "source": "Fund F200 invests globally in fixed income securities."}
+{"claim": "Client C001 has a moderate risk profile.", "label": 1, "source": "Client C001 has a moderate risk profile."}
+{"claim": "High-risk equity funds require human review before being recommended to Client C002.", "label": 0, "source": "Client C001 has a moderate risk profile."}
+{"claim": "Fund F300 has concentrated exposure to the technology sector.", "label": 1, "source": "Fund F300 has concentrated exposure to the technology sector."}
+{"claim": "Client C001 must not invest in tobacco or firearms sectors.", "label": 0, "source": "A recommendation should consider liquidity requirements documented in the client's mandate."}
+{"claim": "Fund F210 is designed for capital preservation and income.", "label": 0, "source": "Fund F200 is designed for capital preservation and income."}
+{"claim": "Client C002 must not invest in Russia or other sanctioned markets.", "label": 1, "source": "Client C002 must not invest in Russia or other sanctioned markets."}
+{"claim": "Fund F100 has exposure to technology and financials sectors.", "label": 0, "source": "Fund F100 invests in emerging markets."}
+{"claim": "At least 10% of Client C003's portfolio must remain liquid within 30 days.", "label": 0, "source": "A recommendation should consider whether the investment creates prohibited sector or region exposure."}
+{"claim": "No single position may exceed 25% of portfolio value for Client C001.", "label": 0, "source": "An investment recommendation should be consistent with the client's documented risk profile."}
+{"claim": "Fund F100 invests in equity securities.", "label": 0, "source": "No single position may exceed 25% of portfolio value for Client C001."}
+{"claim": "No single position may exceed 25% of portfolio value for Client C001.", "label": 0, "source": "Client C003 must not invest in tobacco."}
+{"claim": "Fund F100 is the Global Emerging Markets Equity Fund.", "label": 0, "source": "Client C002 has a conservative risk profile."}
+{"claim": "Fund F310 has concentrated exposure to the technology sector.", "label": 0, "source": "Fund F300 has concentrated exposure to the technology sector."}
+{"claim": "Fund F200 has a low risk level.", "label": 0, "source": "A recommendation should consider whether the investment creates prohibited sector or region exposure."}
+{"claim": "Client C001 is governed by Switzerland and United States suitability constraints.", "label": 0, "source": "Fund F200 invests globally in fixed income securities."}
+{"claim": "Fund F100 invests in emerging markets.", "label": 0, "source": "Client C003 must not invest in Russia."}
+{"claim": "Fund F200 has exposure to government bonds and investment grade credit.", "label": 0, "source": "Fund F200 is designed for capital preservation and income."}
+{"claim": "Fund F100 has exposure to technology and financials sectors.", "label": 0, "source": "A recommendation should consider whether the investment creates prohibited sector or region exposure."}
+{"claim": "Fund F200 has exposure to government bonds and investment grade credit.", "label": 0, "source": "Fund F100 invests in emerging markets."}
+{"claim": "No single position may exceed 15% of portfolio value for Client C002.", "label": 0, "source": "At least 30% of Client C002's portfolio must remain liquid within 30 days."}
+{"claim": "Client C13 may hold high-risk equity funds when concentration and liquidity limits are satisfied.", "label": 0, "source": "Client C003 may hold high-risk equity funds when concentration and liquidity limits are satisfied."}
+{"claim": "Client C003 may hold high-risk equity funds when concentration and liquidity limits are satisfied.", "label": 0, "source": "A recommendation should consider concentration limits in the client's investment mandate."}
+{"claim": "Client C13 has an aggressive risk profile.", "label": 0, "source": "Client C003 has an aggressive risk profile."}
+{"claim": "A recommendation should consider concentration limits in the client's investment mandate.", "label": 0, "source": "Fund F100 invests in emerging markets."}
+{"claim": "Fund F310 can create sector concentration risk for conservative and moderate clients.", "label": 0, "source": "Fund F300 can create sector concentration risk for conservative and moderate clients."}
+{"claim": "At least 10% of Client C003's portfolio must remain liquid within 30 days.", "label": 0, "source": "Fund F200 is designed for capital preservation and income."}
+{"claim": "When available documents do not answer a suitability question, the case should be escalated to a human reviewer.", "label": 0, "source": "Client C003 must not invest in tobacco."}
+{"claim": "Client C13 must not invest in tobacco.", "label": 0, "source": "Client C003 must not invest in tobacco."}
+{"claim": "Fund F300 invests globally in equity securities.", "label": 0, "source": "High-risk equity funds require human review before being recommended to Client C002."}
+{"claim": "Fund F100 invests in equity securities.", "label": 0, "source": "Fund F100 has exposure to technology and financials sectors."}
+{"claim": "Fund F100 invests in emerging markets.", "label": 0, "source": "Fund F100 is the Global Emerging Markets Equity Fund."}
+{"claim": "Client C12 must not invest in Russia or other sanctioned markets.", "label": 0, "source": "Client C002 must not invest in Russia or other sanctioned markets."}
+{"claim": "Client C13 must not invest in Russia.", "label": 0, "source": "Client C003 must not invest in Russia."}
+{"claim": "When available documents do not answer a suitability question, the case should be escalated to a human reviewer.", "label": 0, "source": "A recommendation should consider liquidity requirements documented in the client's mandate."}
+{"claim": "Fund F200 is the Global Bond Fund.", "label": 1, "source": "Fund F200 is the Global Bond Fund."}
+{"claim": "Fund F200 has exposure to government bonds and investment grade credit.", "label": 0, "source": "When available documents do not answer a suitability question, the case should be escalated to a human reviewer."}
+{"claim": "Fund F210 has exposure to government bonds and investment grade credit.", "label": 0, "source": "Fund F200 has exposure to government bonds and investment grade credit."}
+{"claim": "Fund F100 has exposure to technology and financials sectors.", "label": 0, "source": "No single position may exceed 15% of portfolio value for Client C002."}
+{"claim": "No single position may exceed 45% of portfolio value for Client C003.", "label": 0, "source": "No single position may exceed 35% of portfolio value for Client C003."}
+{"claim": "Client C003 has an aggressive risk profile.", "label": 0, "source": "Client C002 has a conservative risk profile."}
+{"claim": "Fund F210 has a low risk level.", "label": 0, "source": "Fund F200 has a low risk level."}
+{"claim": "Client C002 has a conservative risk profile.", "label": 0, "source": "Fund F200 invests globally in fixed income securities."}
+{"claim": "Fund F100 invests in emerging markets.", "label": 1, "source": "Fund F100 invests in emerging markets."}
+{"claim": "Client C001 must not invest in Russia.", "label": 0, "source": "Fund F300 can create sector concentration risk for conservative and moderate clients."}
+{"claim": "Fund F300 is the Technology Sector Equity Fund.", "label": 1, "source": "Fund F300 is the Technology Sector Equity Fund."}
+{"claim": "Client C003 may hold high-risk equity funds when concentration and liquidity limits are satisfied.", "label": 1, "source": "Client C003 may hold high-risk equity funds when concentration and liquidity limits are satisfied."}
+{"claim": "Client C001 is governed by Switzerland and United States suitability constraints.", "label": 0, "source": "High-risk equity funds require human review before being recommended to Client C002."}
+{"claim": "A recommendation should consider whether the investment creates prohibited sector or region exposure. This unrelated sentence is unsupported.", "label": 0, "source": "A recommendation should consider whether the investment creates prohibited sector or region exposure."}
+{"claim": "A recommendation should consider whether the investment creates prohibited sector or region exposure.", "label": 0, "source": "Fund F200 has a low risk level."}
+{"claim": "A recommendation should consider concentration limits in the client's investment mandate.", "label": 0, "source": "Client C001 must not invest in Russia."}
+{"claim": "Client C001 must not invest in Russia.", "label": 0, "source": "Client C002 must not invest in tobacco, firearms, gambling, or cryptocurrency sectors."}
+{"claim": "Client C001 is governed by Switzerland and United States suitability constraints.", "label": 0, "source": "High-risk equity funds require human review before being recommended to Client C002."}
+{"claim": "At least 10% of Client C003's portfolio must remain liquid within 30 days.", "label": 0, "source": "No single position may exceed 35% of portfolio value for Client C003."}
+{"claim": "Fund F300 can create sector concentration risk for conservative and moderate clients.", "label": 0, "source": "An investment recommendation should be consistent with the client's documented risk profile."}
+{"claim": "Client C002 has a conservative risk profile.", "label": 0, "source": "Fund F300 has concentrated exposure to the technology sector."}
+{"claim": "An investment recommendation should be consistent with the client's documented risk profile.", "label": 1, "source": "An investment recommendation should be consistent with the client's documented risk profile."}
+{"claim": "Fund F200 has a low risk level.", "label": 1, "source": "Fund F200 has a low risk level."}
+{"claim": "At least 30% of Client C002's portfolio must remain liquid within 30 days.", "label": 1, "source": "At least 30% of Client C002's portfolio must remain liquid within 30 days."}
+{"claim": "Fund F300 has a high risk level.", "label": 0, "source": "No single position may exceed 15% of portfolio value for Client C002."}
+{"claim": "At least 15% of Client C001's portfolio must remain liquid within 30 days.", "label": 1, "source": "At least 15% of Client C001's portfolio must remain liquid within 30 days."}
+{"claim": "A recommendation should consider whether the investment creates prohibited sector or region exposure.", "label": 0, "source": "Fund F100 is the Global Emerging Markets Equity Fund."}
+{"claim": "No single position may exceed 35% of portfolio value for Client C003.", "label": 0, "source": "Fund F200 invests globally in fixed income securities."}
+{"claim": "Fund F310 is the Technology Sector Equity Fund.", "label": 0, "source": "Fund F300 is the Technology Sector Equity Fund."}
+{"claim": "Fund F100 invests in equity securities.", "label": 0, "source": "A recommendation should consider whether the investment creates prohibited sector or region exposure."}
+{"claim": "Fund F100 invests in emerging markets.", "label": 0, "source": "At least 30% of Client C002's portfolio must remain liquid within 30 days."}
+{"claim": "Client C001 must not invest in Russia.", "label": 0, "source": "An investment recommendation should be consistent with the client's documented risk profile."}
+{"claim": "Client C001 must not invest in Russia.", "label": 0, "source": "Client C001 has a moderate risk profile."}
+{"claim": "A recommendation should consider liquidity requirements documented in the client's mandate.", "label": 0, "source": "Fund F300 invests globally in equity securities."}
+{"claim": "Fund F100 invests in equity securities.", "label": 1, "source": "Fund F100 invests in equity securities."}
+{"claim": "Fund F100 is the Global Emerging Markets Equity Fund.", "label": 0, "source": "Fund F200 has exposure to government bonds and investment grade credit."}
+{"claim": "An investment recommendation should be consistent with the client's documented risk profile.", "label": 0, "source": "Client C003 has an aggressive risk profile."}
+{"claim": "A recommendation should consider whether the investment creates prohibited sector or region exposure.", "label": 0, "source": "High-risk equity funds require human review before being recommended to Client C002."}
+{"claim": "Client C001 is governed by Switzerland and United States suitability constraints.", "label": 0, "source": "Fund F300 has concentrated exposure to the technology sector."}
+{"claim": "Client C002 has a conservative risk profile.", "label": 1, "source": "Client C002 has a conservative risk profile."}
+{"claim": "Client C002 must not invest in Russia or other sanctioned markets.", "label": 0, "source": "Client C002 has a conservative risk profile."}
+{"claim": "Fund F200 is the Global Bond Fund.", "label": 0, "source": "Client C001 has a moderate risk profile."}
+{"claim": "Fund F300 is the Technology Sector Equity Fund.", "label": 0, "source": "At least 10% of Client C003's portfolio must remain liquid within 30 days."}
+{"claim": "Client C003 may hold high-risk equity funds when concentration and liquidity limits are satisfied.", "label": 0, "source": "Client C001 has a moderate risk profile."}
+{"claim": "Fund F300 can create sector concentration risk for conservative and moderate clients.", "label": 0, "source": "Fund F300 invests globally in equity securities."}
+{"claim": "High-risk equity funds require human review before being recommended to Client C002.", "label": 0, "source": "Fund F300 can create sector concentration risk for conservative and moderate clients."}
+{"claim": "Client C001 must not invest in Russia.", "label": 0, "source": "An investment recommendation should be consistent with the client's documented risk profile."}
+{"claim": "Fund F110 invests in equity securities.", "label": 0, "source": "Fund F100 invests in equity securities."}
+{"claim": "Fund F100 invests in equity securities.", "label": 0, "source": "Fund F200 has a low risk level."}
+{"claim": "Fund F300 is the Technology Sector Equity Fund.", "label": 0, "source": "Client C003 must not invest in tobacco."}
+{"claim": "A recommendation should consider concentration limits in the client's investment mandate. This unrelated sentence is unsupported.", "label": 0, "source": "A recommendation should consider concentration limits in the client's investment mandate."}
+{"claim": "A recommendation should consider concentration limits in the client's investment mandate.", "label": 0, "source": "Fund F300 invests globally in equity securities."}
+{"claim": "Fund F300 is the Technology Sector Equity Fund.", "label": 0, "source": "Fund F200 is the Global Bond Fund."}
+{"claim": "No single position may exceed 35% of portfolio value for Client C003.", "label": 1, "source": "No single position may exceed 35% of portfolio value for Client C003."}
+{"claim": "Fund F200 is the Global Bond Fund.", "label": 0, "source": "Client C003 may hold high-risk equity funds when concentration and liquidity limits are satisfied."}
+{"claim": "Client C001 must not invest in tobacco or firearms sectors.", "label": 0, "source": "An investment recommendation should be consistent with the client's documented risk profile."}
+{"claim": "At least 10% of Client C003's portfolio must remain liquid within 30 days.", "label": 0, "source": "No single position may exceed 15% of portfolio value for Client C002."}
+{"claim": "A recommendation should consider concentration limits in the client's investment mandate.", "label": 0, "source": "No single position may exceed 35% of portfolio value for Client C003."}
+{"claim": "At least 10% of Client C003's portfolio must remain liquid within 30 days.", "label": 0, "source": "Client C001 has a moderate risk profile."}
+{"claim": "A recommendation should consider concentration limits in the client's investment mandate.", "label": 0, "source": "At least 15% of Client C001's portfolio must remain liquid within 30 days."}
+{"claim": "At least 30% of Client C002's portfolio must remain liquid within 30 days.", "label": 0, "source": "No single position may exceed 15% of portfolio value for Client C002."}
+{"claim": "Client C003 may hold high-risk equity funds when concentration and liquidity limits are satisfied.", "label": 0, "source": "Fund F200 is the Global Bond Fund."}
+{"claim": "Client C002 must not invest in tobacco, firearms, gambling, or cryptocurrency sectors.", "label": 0, "source": "When available documents do not answer a suitability question, the case should be escalated to a human reviewer."}
+{"claim": "Fund F100 invests in emerging markets.", "label": 0, "source": "No single position may exceed 35% of portfolio value for Client C003."}
+{"claim": "Fund F300 can create sector concentration risk for conservative and moderate clients.", "label": 0, "source": "Fund F300 invests globally in equity securities."}
+{"claim": "Fund F100 has exposure to technology and financials sectors.", "label": 0, "source": "At least 10% of Client C003's portfolio must remain liquid within 30 days."}
+{"claim": "Fund F200 invests globally in fixed income securities.", "label": 0, "source": "Fund F100 has a high risk level."}
+{"claim": "Client C001 must not invest in Russia.", "label": 0, "source": "Client C001 must not invest in tobacco or firearms sectors."}
+{"claim": "Fund F200 has a low risk level.", "label": 0, "source": "A recommendation should consider liquidity requirements documented in the client's mandate."}
+{"claim": "Fund F110 is the Global Emerging Markets Equity Fund.", "label": 0, "source": "Fund F100 is the Global Emerging Markets Equity Fund."}
+{"claim": "Fund F300 invests globally in equity securities.", "label": 0, "source": "At least 15% of Client C001's portfolio must remain liquid within 30 days."}
+{"claim": "Fund F200 invests globally in fixed income securities.", "label": 0, "source": "Client C002 must not invest in Russia or other sanctioned markets."}
+{"claim": "A recommendation should consider concentration limits in the client's investment mandate.", "label": 0, "source": "An investment recommendation should be consistent with the client's documented risk profile."}
+{"claim": "Fund F100 is the Global Emerging Markets Equity Fund.", "label": 0, "source": "Fund F200 has a low risk level."}
+{"claim": "Client C002 has a conservative risk profile.", "label": 0, "source": "At least 15% of Client C001's portfolio must remain liquid within 30 days."}
+{"claim": "Fund F200 is the Global Bond Fund.", "label": 0, "source": "Client C003 has an aggressive risk profile."}
+{"claim": "Fund F110 invests in emerging markets.", "label": 0, "source": "Fund F100 invests in emerging markets."}
+{"claim": "Client C001 has a moderate risk profile.", "label": 0, "source": "Client C003 must not invest in Russia."}
+{"claim": "Fund F200 is designed for capital preservation and income.", "label": 0, "source": "Client C001 must not invest in tobacco or firearms sectors."}
+{"claim": "Client C003 must not invest in Russia.", "label": 0, "source": "Fund F100 has a high risk level."}
+{"claim": "High-risk equity funds require human review before being recommended to Client C002.", "label": 0, "source": "Client C003 may hold high-risk equity funds when concentration and liquidity limits are satisfied."}
+{"claim": "Client C003 may hold high-risk equity funds when concentration and liquidity limits are satisfied.", "label": 0, "source": "No single position may exceed 25% of portfolio value for Client C001."}
+{"claim": "Client C002 must not invest in Russia or other sanctioned markets.", "label": 0, "source": "Fund F100 invests in equity securities."}
+{"claim": "Fund F100 has exposure to technology and financials sectors.", "label": 0, "source": "No single position may exceed 25% of portfolio value for Client C001."}
+{"claim": "At least 15% of Client C001's portfolio must remain liquid within 30 days.", "label": 0, "source": "Client C003 must not invest in tobacco."}
+{"claim": "Client C11 has a moderate risk profile.", "label": 0, "source": "Client C001 has a moderate risk profile."}
+{"claim": "Fund F200 has a low risk level.", "label": 0, "source": "At least 30% of Client C002's portfolio must remain liquid within 30 days."}
+{"claim": "A recommendation should consider whether the investment creates prohibited sector or region exposure.", "label": 0, "source": "Client C001 must not invest in Russia."}
+{"claim": "Fund F100 is the Global Emerging Markets Equity Fund.", "label": 0, "source": "Fund F200 is the Global Bond Fund."}
+{"claim": "Fund F100 invests in equity securities.", "label": 0, "source": "Client C002 has a conservative risk profile."}
+{"claim": "Fund F100 invests in emerging markets.", "label": 0, "source": "No single position may exceed 25% of portfolio value for Client C001."}
+{"claim": "No single position may exceed 25% of portfolio value for Client C001.", "label": 1, "source": "No single position may exceed 25% of portfolio value for Client C001."}
+{"claim": "Fund F100 has exposure to technology and financials sectors.", "label": 0, "source": "Fund F300 has a high risk level."}
+{"claim": "Fund F300 can create sector concentration risk for conservative and moderate clients.", "label": 0, "source": "Fund F200 has exposure to government bonds and investment grade credit."}
+{"claim": "Client C001 has a moderate risk profile.", "label": 0, "source": "Client C001 is governed by Switzerland and United States suitability constraints."}
+{"claim": "Fund F300 has concentrated exposure to the technology sector.", "label": 0, "source": "When available documents do not answer a suitability question, the case should be escalated to a human reviewer."}
+{"claim": "At least 15% of Client C001's portfolio must remain liquid within 30 days.", "label": 0, "source": "Client C001 has a moderate risk profile."}
+{"claim": "A recommendation should consider whether the investment creates prohibited sector or region exposure.", "label": 1, "source": "A recommendation should consider whether the investment creates prohibited sector or region exposure."}
+{"claim": "Client C11 is governed by Switzerland and United States suitability constraints.", "label": 0, "source": "Client C001 is governed by Switzerland and United States suitability constraints."}
+{"claim": "No single position may exceed 35% of portfolio value for Client C003.", "label": 0, "source": "A recommendation should consider concentration limits in the client's investment mandate."}
+{"claim": "Fund F100 has exposure to technology and financials sectors.", "label": 0, "source": "Fund F100 invests in emerging markets."}
+{"claim": "Client C001 must not invest in tobacco or firearms sectors.", "label": 0, "source": "No single position may exceed 35% of portfolio value for Client C003."}
+{"claim": "Client C003 must not invest in Russia.", "label": 0, "source": "Client C002 must not invest in Russia or other sanctioned markets."}
+{"claim": "At least 30% of Client C002's portfolio must remain liquid within 30 days.", "label": 0, "source": "Fund F300 is the Technology Sector Equity Fund."}
+{"claim": "Client C11 must not invest in Russia.", "label": 0, "source": "Client C001 must not invest in Russia."}
+{"claim": "Fund F200 has exposure to government bonds and investment grade credit.", "label": 0, "source": "Client C001 is governed by Switzerland and United States suitability constraints."}
+{"claim": "Fund F300 is the Technology Sector Equity Fund.", "label": 0, "source": "Client C003 must not invest in tobacco."}
+{"claim": "No single position may exceed 25% of portfolio value for Client C001.", "label": 0, "source": "Fund F200 has exposure to government bonds and investment grade credit."}
+{"claim": "Client C003 has an aggressive risk profile.", "label": 0, "source": "At least 15% of Client C001's portfolio must remain liquid within 30 days."}
+{"claim": "Fund F300 is the Technology Sector Equity Fund.", "label": 0, "source": "Fund F300 invests globally in equity securities."}
+{"claim": "Fund F100 is the Global Emerging Markets Equity Fund.", "label": 0, "source": "At least 15% of Client C001's portfolio must remain liquid within 30 days."}
+{"claim": "When available documents do not answer a suitability question, the case should be escalated to a human reviewer.", "label": 0, "source": "Client C002 must not invest in Russia or other sanctioned markets."}
+{"claim": "Client C003 has an aggressive risk profile.", "label": 0, "source": "Fund F100 has exposure to technology and financials sectors."}
+{"claim": "A recommendation should consider concentration limits in the client's investment mandate.", "label": 0, "source": "Fund F300 has concentrated exposure to the technology sector."}
+{"claim": "Client C001 must not invest in tobacco or firearms sectors.", "label": 0, "source": "Fund F300 has concentrated exposure to the technology sector."}
+{"claim": "Fund F100 invests in emerging markets.", "label": 0, "source": "Fund F100 has a high risk level."}
+{"claim": "At least 10% of Client C003's portfolio must remain liquid within 30 days.", "label": 0, "source": "When available documents do not answer a suitability question, the case should be escalated to a human reviewer."}
+{"claim": "No single position may exceed 15% of portfolio value for Client C002.", "label": 0, "source": "An investment recommendation should be consistent with the client's documented risk profile."}
+{"claim": "When available documents do not answer a suitability question, the case should be escalated to a human reviewer.", "label": 0, "source": "Fund F100 invests in emerging markets."}
+{"claim": "Fund F200 is designed for capital preservation and income.", "label": 0, "source": "No single position may exceed 35% of portfolio value for Client C003."}
+{"claim": "At least 10% of Client C003's portfolio must remain liquid within 30 days.", "label": 0, "source": "Client C001 is governed by Switzerland and United States suitability constraints."}
+{"claim": "Client C002 must not invest in Russia or other sanctioned markets.", "label": 0, "source": "At least 30% of Client C002's portfolio must remain liquid within 30 days."}
+{"claim": "Client C003 has an aggressive risk profile.", "label": 0, "source": "No single position may exceed 15% of portfolio value for Client C002."}
+{"claim": "Fund F200 has a low risk level.", "label": 0, "source": "Client C002 must not invest in Russia or other sanctioned markets."}
+{"claim": "Client C001 must not invest in Russia.", "label": 0, "source": "High-risk equity funds require human review before being recommended to Client C002."}
+{"claim": "A recommendation should consider concentration limits in the client's investment mandate.", "label": 1, "source": "A recommendation should consider concentration limits in the client's investment mandate."}
+{"claim": "Client C003 must not invest in tobacco.", "label": 0, "source": "Fund F100 has exposure to technology and financials sectors."}
+{"claim": "Client C003 must not invest in Russia.", "label": 1, "source": "Client C003 must not invest in Russia."}
+{"claim": "At least 30% of Client C002's portfolio must remain liquid within 30 days.", "label": 0, "source": "Fund F300 can create sector concentration risk for conservative and moderate clients."}
+{"claim": "Fund F100 invests in emerging markets.", "label": 0, "source": "Fund F200 invests globally in fixed income securities."}
+{"claim": "Fund F310 invests globally in equity securities.", "label": 0, "source": "Fund F300 invests globally in equity securities."}
+{"claim": "An investment recommendation should be consistent with the client's documented risk profile.", "label": 0, "source": "Fund F100 is the Global Emerging Markets Equity Fund."}
+{"claim": "Fund F200 is designed for capital preservation and income.", "label": 0, "source": "No single position may exceed 25% of portfolio value for Client C001."}
+{"claim": "At least 15% of Client C001's portfolio must remain liquid within 30 days.", "label": 0, "source": "Fund F200 is designed for capital preservation and income."}
+{"claim": "Client C002 must not invest in tobacco, firearms, gambling, or cryptocurrency sectors.", "label": 0, "source": "At least 15% of Client C001's portfolio must remain liquid within 30 days."}
+{"claim": "A recommendation should consider liquidity requirements documented in the client's mandate.", "label": 0, "source": "Client C001 has a moderate risk profile."}
+{"claim": "Client C003 has an aggressive risk profile.", "label": 1, "source": "Client C003 has an aggressive risk profile."}
+{"claim": "Fund F100 has a high risk level.", "label": 1, "source": "Fund F100 has a high risk level."}
+{"claim": "When available documents do not answer a suitability question, the case should be escalated to a human reviewer. This unrelated sentence is unsupported.", "label": 0, "source": "When available documents do not answer a suitability question, the case should be escalated to a human reviewer."}
+{"claim": "A recommendation should consider concentration limits in the client's investment mandate.", "label": 0, "source": "No single position may exceed 25% of portfolio value for Client C001."}
+{"claim": "A recommendation should consider whether the investment creates prohibited sector or region exposure.", "label": 0, "source": "Client C003 must not invest in Russia."}
+{"claim": "Client C003 has an aggressive risk profile.", "label": 0, "source": "A recommendation should consider liquidity requirements documented in the client's mandate."}
+{"claim": "Client C001 has a moderate risk profile.", "label": 0, "source": "Fund F300 is the Technology Sector Equity Fund."}
+{"claim": "Client C001 must not invest in tobacco or firearms sectors.", "label": 0, "source": "Client C002 must not invest in tobacco, firearms, gambling, or cryptocurrency sectors."}
+{"claim": "At least 30% of Client C002's portfolio must remain liquid within 30 days.", "label": 0, "source": "No single position may exceed 35% of portfolio value for Client C003."}
+{"claim": "Fund F300 is the Technology Sector Equity Fund.", "label": 0, "source": "Fund F100 invests in equity securities."}
+{"claim": "Fund F100 has exposure to technology and financials sectors.", "label": 0, "source": "No single position may exceed 25% of portfolio value for Client C001."}

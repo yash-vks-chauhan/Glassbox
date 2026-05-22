@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+pydantic-settings
+sqlalchemy
+alembic
+psycopg[binary]
+chromadb
+sentence-transformers
+scikit-learn
+joblib
+httpx
+python-dotenv
+numpy
+pytest
+pytest-cov
