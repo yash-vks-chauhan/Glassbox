@@ -9,6 +9,9 @@ class RetrievedChunk:
     score: float
     file: str | None = None
     chunk_index: int | None = None
+    source_version: str | None = None
+    selected_reason: str | None = None
+    cache_hit: bool = False
 
 
 @dataclass(frozen=True)

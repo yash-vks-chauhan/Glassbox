@@ -3,28 +3,12 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 
-import httpx
-
 from app.config import get_settings
-
-
-class LLMUnavailable(RuntimeError):
-    pass
-
-
-def has_usable_openrouter_key(key: str | None) -> bool:
-    normalized = (key or "").strip()
-    if not normalized:
-        return False
-    placeholder_values = {
-        "sk-or-...",
-        "sk-or-your-key",
-        "sk-or-your-key-here",
-        "your-openrouter-key",
-    }
-    if normalized.lower() in placeholder_values:
-        return False
-    return normalized.startswith("sk-or-") and len(normalized) > 16
+from app.core.model_router import (
+    LLMUnavailable,
+    chat_with_router,
+    has_usable_openrouter_key,
+)
 
 
 def chat(
@@ -32,40 +16,16 @@ def chat(
     temperature: float | None = None,
     model: str | None = None,
     api_key: str | None = None,
+    enforce_production_gate: bool = True,
 ) -> str:
-    settings = get_settings()
-    if settings.local_llm and not api_key:
-        return _local_chat(messages)
-
-    key = api_key or settings.openrouter_api_key
-    if not has_usable_openrouter_key(key):
-        raise LLMUnavailable("OPENROUTER_API_KEY is not configured")
-
-    payload = {
-        "model": model or settings.llm_model,
-        "messages": messages,
-        "temperature": temperature if temperature is not None else settings.llm_temperature,
-    }
-    try:
-        with httpx.Client(timeout=45) as client:
-            response = client.post(
-                f"{settings.llm_base_url.rstrip('/')}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {key}",
-                    "Content-Type": "application/json",
-                    "X-Title": "GlassBox",
-                },
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
-    except (httpx.HTTPError, KeyError, IndexError) as exc:
-        raise LLMUnavailable(str(exc)) from exc
-
-    try:
-        return str(data["choices"][0]["message"]["content"]).strip()
-    except (KeyError, IndexError, TypeError) as exc:
-        raise LLMUnavailable("OpenRouter returned an unexpected payload") from exc
+    return chat_with_router(
+        messages,
+        local_chat=_local_chat,
+        temperature=temperature if temperature is not None else get_settings().llm_temperature,
+        model=model,
+        api_key=api_key,
+        enforce_production_gate=enforce_production_gate,
+    )
 
 
 def _local_chat(messages: list[dict[str, str]]) -> str:
@@ -84,7 +44,28 @@ def _extract_block(text: str, label: str) -> str:
 
 
 def _source_map(prompt: str) -> dict[str, list[str]]:
+    """Parse the source blocks out of an answer-agent prompt.
+
+    Phase E switched the wire format from ``SOURCE X (type):`` plain text
+    headers to ``<source id="X" type="...">...</source>`` XML-style
+    wrappers (prompt-injection containment). We accept both shapes here so
+    the deterministic local LLM keeps working when other tests use older
+    fixtures and so any in-flight prompt cache lines remain parseable.
+    """
     sources: dict[str, list[str]] = defaultdict(list)
+    # Phase E shape: <source id="X" type="..."> ... </source>
+    for match in re.finditer(
+        r'<source\s+id="([A-Z0-9_-]+)"\s+type="([^"]+)"\s*>\s*(.*?)\s*</source>',
+        prompt,
+        flags=re.S | re.I,
+    ):
+        source_id = match.group(1)
+        text = " ".join(line.strip() for line in match.group(3).splitlines() if line.strip())
+        if text:
+            sources[source_id].append(text)
+    if sources:
+        return sources
+    # Legacy shape (Phase D and earlier).
     for match in re.finditer(
         r"SOURCE\s+([A-Z0-9_-]+)\s+\(([^)]+)\):\s*(.*?)(?=\nSOURCE\s+[A-Z0-9_-]+\s+\(|\nQUESTION:|\Z)",
         prompt,
@@ -107,15 +88,36 @@ def _local_answer(prompt: str) -> str:
         if "capital gains" not in all_text and "tax rate" not in all_text:
             return "INSUFFICIENT_CONTEXT"
 
-    client_id = _id_in_question(question, "C") or _first_source_id(sources, prefix="C")
-    fund_id = _id_in_question(question, "F") or _first_source_id(sources, prefix="F")
+    question_client_id = _id_in_question(question, "C")
+    client_id = question_client_id if question_client_id in sources else _first_source_id(sources, prefix="C")
+    claimed_fund_id = _claimed_fund_id(question)
+    question_fund_id = claimed_fund_id or _id_in_question(question, "F")
+    fund_id = question_fund_id if question_fund_id in sources else _first_source_id(sources, prefix="F")
     claims: list[str] = []
 
-    if "40%" in q or "40 percent" in q or "single position" in q:
+    if any(
+        term in q
+        for term in [
+            "40%",
+            "40 percent",
+            "single position",
+            "concentration",
+            "position",
+            "one fund",
+            "maximum",
+            "cap",
+            "allocate",
+            "allocation",
+        ]
+    ):
         limit = _find_number_for_source(sources, client_id, r"exceed\s+(\d+)%")
         if client_id and limit is not None:
             proposed = _find_first_percent(question)
-            if proposed is not None and proposed > limit:
+            if "ignore" in q and "cap" in q:
+                claims.append(
+                    f"Ignoring the {limit}% concentration cap would breach Client {client_id}'s single-position limit. [{client_id}]"
+                )
+            elif proposed is not None and proposed > limit:
                 claims.append(
                     f"The proposed {proposed}% allocation violates Client {client_id}'s single-position limit because no single position may exceed {limit}% of portfolio value. [{client_id}]"
                 )
@@ -124,24 +126,61 @@ def _local_answer(prompt: str) -> str:
                     f"No single position may exceed {limit}% of portfolio value for Client {client_id}. [{client_id}]"
                 )
 
-    if any(term in q for term in ["suitable", "suitability", "risk"]):
-        if fund_id and _contains_for_source(sources, fund_id, "high risk"):
-            claims.append(f"Fund {fund_id} has a high risk level. [{fund_id}]")
+    if any(term in q for term in ["suitable", "suitability", "risk", "recommend", "recommendation"]):
+        fund_risk = _risk_level_for_source(sources, fund_id) if fund_id else None
+        if fund_id and fund_risk:
+            claims.append(f"Fund {fund_id} has a {fund_risk} risk level. [{fund_id}]")
+            if "technology" in " ".join(sources.get(fund_id, [])).lower():
+                sentence = _sentence_for_term(" ".join(sources[fund_id]), "technology")
+                if sentence:
+                    claims.append(f"{sentence}. [{fund_id}]")
         if client_id:
             profile = _risk_profile_for_source(sources, client_id)
             if profile:
                 claims.append(f"Client {client_id} has a {profile} risk profile. [{client_id}]")
-            if profile in {"conservative", "moderate"} and fund_id:
-                claims.append(
-                    f"A high-risk fund should be reviewed against Client {client_id}'s documented risk profile before recommendation. [REG-SUITABILITY]"
-                )
+            elif "recommend" in q:
+                sentence = _sentence_for_term(" ".join(sources.get(client_id, [])), client_id)
+                if sentence:
+                    claims.append(f"{sentence}. [{client_id}]")
+            if "REG-SUITABILITY" in sources and (
+                "recommend" in q or (profile in {"conservative", "moderate"} and fund_risk == "high")
+            ):
+                sentence = _sentence_for_term(" ".join(sources["REG-SUITABILITY"]), "recommendation")
+                if sentence:
+                    claims.append(f"{sentence}. [REG-SUITABILITY]")
 
-    if any(term in q for term in ["tobacco", "firearms", "gambling", "russia"]):
+    if fund_id and any(term in q for term in ["claiming", "government bond", "as if"]):
+        fund_risk = _risk_level_for_source(sources, fund_id)
+        if fund_risk:
+            claims.append(f"Fund {fund_id} has a {fund_risk} risk level. [{fund_id}]")
+        if "technology" in " ".join(sources.get(fund_id, [])).lower():
+            sentence = _sentence_for_term(" ".join(sources[fund_id]), "technology")
+            if sentence:
+                claims.append(f"{sentence}. [{fund_id}]")
+
+    if "REG-SUITABILITY" in sources and any(
+        term in q for term in ["escalate", "available documents", "concentration", "liquidity", "prohibited sector"]
+    ):
+        term = "human" if "escalate" in q or "available documents" in q else "concentration"
+        if "liquidity" in q:
+            term = "liquidity"
+        if "prohibited sector" in q:
+            term = "prohibited sector"
+        reg_text = " ".join(sources["REG-SUITABILITY"])
+        sentence = _sentence_for_term(reg_text, term) or _first_sentence(reg_text)
+        if sentence:
+            claims.append(f"{sentence}. [REG-SUITABILITY]")
+
+    if any(term in q for term in ["tobacco", "firearms", "gambling", "russia", "cryptocurrency"]):
         for source_id, texts in sources.items():
             source_text = " ".join(texts).lower()
-            for term in ["tobacco", "firearms", "gambling", "russia"]:
+            for term in ["tobacco", "firearms", "gambling", "russia", "cryptocurrency"]:
                 if term in q and term in source_text:
-                    claims.append(f"Client {source_id} has a restriction involving {term}. [{source_id}]")
+                    sentence = _sentence_for_term(" ".join(texts), term)
+                    if sentence:
+                        claims.append(f"{sentence}. [{source_id}]")
+                    else:
+                        claims.append(f"Client {source_id} has a restriction involving {term}. [{source_id}]")
 
     if not claims:
         for source_id, texts in list(sources.items())[:3]:
@@ -161,6 +200,11 @@ def _first_source_id(sources: dict[str, list[str]], prefix: str) -> str | None:
 
 def _id_in_question(question: str, prefix: str) -> str | None:
     match = re.search(rf"\b({prefix}\d{{3}})\b", question, flags=re.I)
+    return match.group(1).upper() if match else None
+
+
+def _claimed_fund_id(question: str) -> str | None:
+    match = re.search(r"\bclaiming\s+(F\d{3})\b", question, flags=re.I)
     return match.group(1).upper() if match else None
 
 
@@ -185,11 +229,37 @@ def _contains_for_source(sources: dict[str, list[str]], source_id: str, needle: 
     return needle.lower() in " ".join(sources.get(source_id, [])).lower()
 
 
+def _sentence_for_term(text: str, term: str) -> str | None:
+    for sentence in re.split(r"(?<=[.!?])\s+", text):
+        cleaned = sentence.strip().rstrip(".")
+        if term.lower() in cleaned.lower():
+            return cleaned
+    return None
+
+
+def _first_sentence(text: str) -> str | None:
+    for sentence in re.split(r"(?<=[.!?])\s+", text):
+        cleaned = sentence.strip().rstrip(".")
+        if cleaned:
+            return cleaned
+    return None
+
+
 def _risk_profile_for_source(sources: dict[str, list[str]], source_id: str) -> str | None:
     text = " ".join(sources.get(source_id, [])).lower()
     for profile in ["conservative", "moderate", "aggressive"]:
         if profile in text:
             return profile
+    return None
+
+
+def _risk_level_for_source(sources: dict[str, list[str]], source_id: str | None) -> str | None:
+    if not source_id:
+        return None
+    text = " ".join(sources.get(source_id, [])).lower()
+    for level in ["low", "moderate", "high"]:
+        if f"{level} risk" in text or f"{level} risk level" in text:
+            return level
     return None
 
 
@@ -218,8 +288,16 @@ def _supported_numeric_inference(
 ) -> bool:
     if not source_numbers:
         return False
-    if not re.search(r"\b(violate|violates|exceed|exceeds|above|greater)\b", claim, re.I):
+    if not re.search(
+        r"\b(violate|violates|breach|breaches|exceed|exceeds|above|greater|cannot|can not|not allowed|not permitted)\b",
+        claim,
+        re.I,
+    ):
         return False
     claim_values = [int(re.sub(r"\D", "", number)) for number in claim_numbers]
     source_values = [int(re.sub(r"\D", "", number)) for number in source_numbers]
-    return bool(claim_values and source_values and max(claim_values) > min(source_values))
+    if claim_values and source_values and max(claim_values) > min(source_values):
+        return True
+    if claim_values and source_values and re.search(r"\b(at least|floor|below|liquidity)\b", claim, re.I):
+        return min(claim_values) < max(source_values)
+    return False

@@ -55,7 +55,7 @@ export function InlineCitation({ citation, onClick }: Props) {
   );
 }
 
-const TOKEN_RE = /\[\d+\]/g;
+const TOKEN_RE = /\[([A-Z][A-Z0-9_-]+|\d+)\]/g;
 
 export function renderTextWithCitations(
   text: string,
@@ -70,12 +70,15 @@ export function renderTextWithCitations(
     if (match.index > lastIndex) {
       nodes.push(text.slice(lastIndex, match.index));
     }
-    const n = Number(match[0].slice(1, -1));
-    const citation = citations.find((c) => c.index === n);
+    const token = match[1];
+    const n = Number(token);
+    const citation = Number.isFinite(n)
+      ? citations.find((c) => c.index === n)
+      : citations.find((c) => c.sourceId === token);
     if (citation) {
       nodes.push(
         <InlineCitation
-          key={`${match.index}-${n}`}
+          key={`${match.index}-${token}`}
           citation={citation}
           onClick={onCitation}
         />,

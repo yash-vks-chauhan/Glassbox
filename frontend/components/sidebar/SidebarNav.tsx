@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { hasAtLeastRole, useAuth, type AuthUser } from "@/lib/auth-context";
 
 type NavItem = {
   href: string;
@@ -24,6 +25,8 @@ type NavItem = {
   icon: LucideIcon;
   group: "work" | "oversight" | "system";
   matches?: (pathname: string) => boolean;
+  /** Minimum role required to see this item. Default: visible to everyone. */
+  requires?: AuthUser["role"];
 };
 
 const NAV: NavItem[] = [
@@ -33,12 +36,15 @@ const NAV: NavItem[] = [
   { href: "/app/threads", label: "Threads", icon: LayoutGrid, group: "work",
     matches: (p) => p.startsWith("/app/threads") },
   { href: "/app/review", label: "Review queue", icon: ClipboardList, group: "oversight",
-    matches: (p) => p.startsWith("/app/review") },
+    matches: (p) => p.startsWith("/app/review"), requires: "compliance" },
   { href: "/app/audit", label: "Audit log", icon: ArchiveRestore, group: "oversight",
     matches: (p) => p.startsWith("/app/audit") },
-  { href: "/app/insights", label: "Insights", icon: LineChart, group: "oversight" },
+  { href: "/app/insights", label: "Insights", icon: LineChart, group: "oversight",
+    requires: "compliance" },
   { href: "/app/library", label: "Library", icon: BookOpen, group: "system" },
-  { href: "/app/admin", label: "Admin", icon: Cog, group: "system" },
+  // Phase F — hide /app/admin for non-admin/non-owner. The page itself also
+  // guards on `hasAtLeastRole(role, "admin")`, this just keeps the sidebar tidy.
+  { href: "/app/admin", label: "Admin", icon: Cog, group: "system", requires: "admin" },
 ];
 
 const GROUP_LABELS: Record<NavItem["group"], string> = {
@@ -49,8 +55,11 @@ const GROUP_LABELS: Record<NavItem["group"], string> = {
 
 export function SidebarNav() {
   const pathname = usePathname() || "";
+  const { role } = useAuth();
+  // Filter once per render — the role rarely changes and the list is small.
+  const visible = NAV.filter((item) => !item.requires || hasAtLeastRole(role, item.requires));
   const grouped: Record<NavItem["group"], NavItem[]> = { work: [], oversight: [], system: [] };
-  for (const item of NAV) grouped[item.group].push(item);
+  for (const item of visible) grouped[item.group].push(item);
 
   return (
     <nav className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-2">
@@ -103,23 +112,41 @@ export function SidebarNav() {
 }
 
 export function SidebarBrand() {
+  const { user } = useAuth();
+  const tenant = user?.tenant_slug ?? "Audit-grade AI";
   return (
-    <Link href="/app/home" className="flex items-center gap-2.5 px-4 py-4">
-      <span
-        className="flex h-7 w-7 items-center justify-center rounded-md text-primary-foreground"
-        style={{ background: "hsl(var(--primary))" }}
-      >
-        <ScanSearch className="h-3.5 w-3.5" />
-      </span>
-      <div className="flex flex-col">
-        <span className="font-serif text-[15px] font-semibold tracking-tight leading-none">
-          GlassBox
+    <div className="px-3 pt-4">
+      <Link href="/app/home" className="flex items-center gap-2.5">
+        <span
+          className="flex h-7 w-7 items-center justify-center rounded-md text-primary-foreground"
+          style={{ background: "hsl(var(--primary))" }}
+        >
+          <ScanSearch className="h-3.5 w-3.5" />
         </span>
-        <span className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-          Audit-grade AI
-        </span>
-      </div>
-    </Link>
+        <div className="flex flex-col">
+          <span className="font-serif text-[15px] font-semibold tracking-tight leading-none">
+            GlassBox
+          </span>
+          <span className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+            {tenant}
+          </span>
+        </div>
+      </Link>
+      {user ? (
+        <div className="mt-3 flex items-center gap-2 rounded-md border border-sidebar-border/60 bg-sidebar/80 px-2 py-1.5 text-[11px]">
+          <span className="truncate text-muted-foreground" title={user.email}>
+            {user.email}
+          </span>
+          <span
+            className="ml-auto rounded-sm border px-1.5 py-px text-[10px] uppercase tracking-[0.12em] text-foreground"
+            data-testid="sidebar-role-badge"
+            title={`Role: ${user.role}`}
+          >
+            {user.role}
+          </span>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

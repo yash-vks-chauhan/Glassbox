@@ -68,7 +68,7 @@ export function ClientContextBar({ client, openFlagCount = 0, activeTab = "overv
 
         <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
           <Meta icon={FileText} label={`IPS ${client.ipsVersion}`} />
-          <Meta icon={CalendarDays} label={new Date(client.ipsUpdatedAt).toLocaleDateString()} />
+          <Meta icon={CalendarDays} label={formatDate(client.ipsUpdatedAt)} />
           {openFlagCount > 0 ? (
             <Meta
               icon={ShieldAlert}
@@ -98,6 +98,15 @@ export function ClientContextBar({ client, openFlagCount = 0, activeTab = "overv
       </div>
     </div>
   );
+}
+
+function formatDate(value: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(value));
 }
 
 function Meta({

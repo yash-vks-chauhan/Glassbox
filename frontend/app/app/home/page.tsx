@@ -19,12 +19,17 @@ import {
   type AuditSummary,
   type MetricsSummary,
 } from "@/lib/api";
+import { hasAtLeastRole, useAuth } from "@/lib/auth-context";
 import { useClients } from "@/lib/clients-hooks";
 import { classify } from "@/lib/outcomes";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function HomePage() {
   const { clients } = useClients();
+  const { role } = useAuth();
+  // `/metrics/summary` is compliance+; advisors would otherwise get a noisy
+  // 403 banner on every 15-second poll. Skip the call entirely for them.
+  const canSeeMetrics = hasAtLeastRole(role, "compliance");
   const getClient = (id: string | null | undefined) =>
     id ? clients.find((c) => c.id === id) : undefined;
   const [audits, setAudits] = useState<AuditSummary[] | null>(null);
@@ -47,10 +52,14 @@ export default function HomePage() {
     let active = true;
     async function load() {
       try {
-        const [a, m] = await Promise.all([getAuditSummaries(30), getMetrics()]);
+        const audits = await getAuditSummaries(30);
         if (!active) return;
-        setAudits(a);
-        setMetrics(m);
+        setAudits(audits);
+        if (canSeeMetrics) {
+          const m = await getMetrics();
+          if (!active) return;
+          setMetrics(m);
+        }
         setError(null);
       } catch (err) {
         if (active) setError(err instanceof Error ? err.message : "Failed to load home");

@@ -10,6 +10,7 @@ import {
   RefreshCw,
   ShieldCheck,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { PageContainer, PageHeader } from "@/components/PageContainer";
 import { OutcomeBadge } from "@/components/OutcomeBadge";
@@ -17,18 +18,18 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getAuditSummaries, type AuditSummary } from "@/lib/api";
+import { listEscalations, updateEscalation, type Escalation } from "@/lib/api";
 import { useClients } from "@/lib/clients-hooks";
-import { classify, type OutcomeKind } from "@/lib/outcomes";
+import { type OutcomeKind } from "@/lib/outcomes";
 import { cn } from "@/lib/utils";
 
 type SlaState = { ageMin: number; label: string; tone: "ok" | "warn" | "danger" };
 
-function sla(createdAt: string): SlaState {
-  const ageMin = Math.floor((Date.now() - new Date(createdAt).getTime()) / 60_000);
-  if (ageMin < 120) return { ageMin, label: `${formatAge(ageMin)} left`, tone: "ok" };
-  if (ageMin < 240) return { ageMin, label: `${formatAge(ageMin)} elapsed`, tone: "warn" };
-  return { ageMin, label: `breached ${formatAge(ageMin - 240)}`, tone: "danger" };
+function sla(slaDueAt: string): SlaState {
+  const deltaMin = Math.floor((new Date(slaDueAt).getTime() - Date.now()) / 60_000);
+  if (deltaMin >= 120) return { ageMin: deltaMin, label: `${formatAge(deltaMin)} left`, tone: "ok" };
+  if (deltaMin >= 0) return { ageMin: deltaMin, label: `${formatAge(deltaMin)} left`, tone: "warn" };
+  return { ageMin: Math.abs(deltaMin), label: `breached ${formatAge(Math.abs(deltaMin))}`, tone: "danger" };
 }
 
 function formatAge(min: number): string {
@@ -49,7 +50,7 @@ export default function ReviewQueuePage() {
   const { clients } = useClients();
   const getClient = (id: string | null | undefined) =>
     id ? clients.find((c) => c.id === id) : undefined;
-  const [audits, setAudits] = useState<AuditSummary[] | null>(null);
+  const [escalations, setEscalations] = useState<Escalation[] | null>(null);
   const [filter, setFilter] = useState<OutcomeKind | "all">("flagged");
   const [clientId, setClientId] = useState<string>("all");
   const [query, setQuery] = useState("");
@@ -58,12 +59,12 @@ export default function ReviewQueuePage() {
 
   useEffect(() => {
     let active = true;
-    getAuditSummaries(200)
+    listEscalations(200)
       .then((rows) => {
-        if (active) setAudits(rows);
+        if (active) setEscalations(rows);
       })
       .catch(() => {
-        if (active) setAudits([]);
+        if (active) setEscalations([]);
       });
     return () => {
       active = false;
@@ -71,18 +72,18 @@ export default function ReviewQueuePage() {
   }, [refreshKey]);
 
   const rows = useMemo(() => {
-    if (!audits) return null;
+    if (!escalations) return null;
     const needle = query.trim().toLowerCase();
-    return audits
+    return escalations
       .filter((a) => {
-        const kind = classify(a);
+        const kind = escalationOutcome(a);
         if (filter !== "all" && kind !== filter) return false;
         if (filter === "all" && kind === "answered") return false;
         if (clientId !== "all" && a.client_id !== clientId) return false;
         if (needle) {
           const c = getClient(a.client_id);
           return (
-            a.question.toLowerCase().includes(needle) ||
+            (a.question ?? "").toLowerCase().includes(needle) ||
             (c?.displayName ?? "").toLowerCase().includes(needle) ||
             a.id.toLowerCase().includes(needle)
           );
@@ -90,9 +91,9 @@ export default function ReviewQueuePage() {
         return true;
       })
       .sort((a, b) =>
-        new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+        new Date(a.sla_due_at).getTime() - new Date(b.sla_due_at).getTime(),
       );
-  }, [audits, filter, clientId, query]);
+  }, [escalations, filter, clientId, query]);
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -110,18 +111,20 @@ export default function ReviewQueuePage() {
 
   function exportCsv() {
     if (!rows) return;
-    const header = ["id", "created_at", "client_id", "outcome", "question", "grounding", "determinism", "latency_ms"];
+    const header = ["escalation_id", "decision_id", "created_at", "sla_due_at", "client_id", "status", "outcome", "question", "grounding", "latency_ms"];
     const lines = [header.join(",")].concat(
       rows.map((r) => {
         const cells = [
           r.id,
+          r.decision_id,
           r.created_at,
+          r.sla_due_at,
           r.client_id ?? "",
-          r.outcome,
-          `"${r.question.replace(/"/g, '""')}"`,
+          r.status,
+          r.decision_outcome ?? "",
+          `"${(r.question ?? "").replace(/"/g, '""')}"`,
           r.grounding_score ?? "",
-          r.determinism_score ?? "",
-          r.latency_ms,
+          r.latency_ms ?? "",
         ];
         return cells.join(",");
       }),
@@ -133,6 +136,33 @@ export default function ReviewQueuePage() {
     a.download = `glassbox-review-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function bulkUpdate(status: Escalation["status"], label: string) {
+    if (selected.size === 0) return;
+    const ids = Array.from(selected);
+    try {
+      const updated = await Promise.all(
+        ids.map((id) =>
+          updateEscalation(id, {
+            status,
+            note: label,
+          }),
+        ),
+      );
+      const byId = new Map(updated.map((row) => [row.id, row]));
+      setEscalations((current) =>
+        current?.map((row) => byId.get(row.id) ?? row) ?? current,
+      );
+      setSelected(new Set());
+      toast.success(label, {
+        description: `${updated.length} escalation${updated.length === 1 ? "" : "s"} updated.`,
+      });
+    } catch (error) {
+      toast.error("Could not update review queue", {
+        description: error instanceof Error ? error.message : "Escalation update failed.",
+      });
+    }
   }
 
   return (
@@ -207,9 +237,8 @@ export default function ReviewQueuePage() {
       {selected.size > 0 ? (
         <div className="mb-2 flex items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs">
           <span className="font-medium">{selected.size} selected</span>
-          <Button variant="outline" size="sm" className="h-7 rounded-md text-xs">Claim</Button>
-          <Button variant="outline" size="sm" className="h-7 rounded-md text-xs">Mark reviewed</Button>
-          <Button variant="outline" size="sm" className="h-7 rounded-md text-xs">Escalate</Button>
+          <Button variant="outline" size="sm" className="h-7 rounded-md text-xs" onClick={() => bulkUpdate("in_review", "Claimed for review")}>Claim</Button>
+          <Button variant="outline" size="sm" className="h-7 rounded-md text-xs" onClick={() => bulkUpdate("resolved", "Marked reviewed")}>Mark reviewed</Button>
           <button className="ml-auto text-muted-foreground" onClick={() => setSelected(new Set())}>
             Clear
           </button>
@@ -228,7 +257,7 @@ export default function ReviewQueuePage() {
           <div className="bg-card px-3 py-2.5">When</div>
           <div className="bg-card px-3 py-2.5">Question</div>
           <div className="bg-card px-3 py-2.5">Client</div>
-          <div className="bg-card px-3 py-2.5">Outcome</div>
+          <div className="bg-card px-3 py-2.5">Status</div>
           <div className="bg-card px-3 py-2.5 text-right">Grounding</div>
           <div className="bg-card px-3 py-2.5">SLA</div>
           <div className="bg-card px-3 py-2.5" />
@@ -246,7 +275,7 @@ export default function ReviewQueuePage() {
           <ul>
             {rows.map((row) => {
               const c = getClient(row.client_id);
-              const s = sla(row.created_at);
+              const s = sla(row.sla_due_at);
               return (
                 <li
                   key={row.id}
@@ -265,12 +294,12 @@ export default function ReviewQueuePage() {
                       minute: "2-digit",
                     })}
                   </div>
-                  <Link href={`/app/review/${row.id}`} className="block px-3 py-2.5">
-                    <div className="line-clamp-1">{row.question}</div>
+                  <Link href={`/app/review/${row.decision_id}`} className="block px-3 py-2.5">
+                    <div className="line-clamp-1">{row.question ?? "Decision needs review"}</div>
                     <div className="text-[11px] text-muted-foreground">
-                      <span className="font-mono">{row.id.slice(0, 8)}</span>
+                      <span className="font-mono">{row.decision_id.slice(0, 8)}</span>
                       {" · "}
-                      {row.latency_ms}ms
+                      {row.latency_ms ?? "—"}ms
                     </div>
                   </Link>
                   <div className="px-3 py-2.5">
@@ -280,7 +309,12 @@ export default function ReviewQueuePage() {
                     </div>
                   </div>
                   <div className="px-3 py-2.5">
-                    <OutcomeBadge result={row} size="sm" />
+                    <div className="flex flex-col gap-1">
+                      <span className={cn("w-fit rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.08em]", row.status === "open" ? "state-flagged" : row.status === "resolved" ? "state-grounded" : "bg-background")}>
+                        {row.status.replaceAll("_", " ")}
+                      </span>
+                      <OutcomeBadge result={{ outcome: row.decision_outcome ?? "flagged" }} size="sm" />
+                    </div>
                   </div>
                   <div className="px-3 py-2.5 text-right tabular">
                     {row.grounding_score === null ? (
@@ -307,7 +341,7 @@ export default function ReviewQueuePage() {
                     {s.label}
                   </div>
                   <Link
-                    href={`/app/review/${row.id}`}
+                    href={`/app/review/${row.decision_id}`}
                     className="flex items-center justify-end px-3 py-2.5 text-muted-foreground hover:text-foreground"
                   >
                     <ArrowUpRight className="h-3.5 w-3.5" />
@@ -320,6 +354,14 @@ export default function ReviewQueuePage() {
       </div>
     </PageContainer>
   );
+}
+
+function escalationOutcome(row: Escalation): OutcomeKind | "answered" {
+  const outcome = row.decision_outcome;
+  if (outcome === "flagged" || outcome === "refused" || outcome === "fallback" || outcome === "answered") {
+    return outcome;
+  }
+  return "flagged";
 }
 
 function Empty() {

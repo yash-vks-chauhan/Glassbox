@@ -28,21 +28,35 @@ def numeric_match(claim: str, source: str) -> float:
     source_numbers = set(re.findall(r"\d+%?", source))
     if claim_numbers.issubset(source_numbers):
         return 1.0
-    if source_numbers and re.search(r"\b(violate|violates|exceed|exceeds|above|greater)\b", claim, re.I):
+    if source_numbers and re.search(
+        r"\b(violate|violates|breach|breaches|exceed|exceeds|above|greater|cannot|can not|not allowed|not permitted)\b",
+        claim,
+        re.I,
+    ):
         claim_values = [int(re.sub(r"\D", "", number)) for number in claim_numbers]
         source_values = [int(re.sub(r"\D", "", number)) for number in source_numbers]
         if claim_values and source_values and max(claim_values) > min(source_values):
             return 1.0
+        if claim_values and source_values and re.search(r"\b(at least|floor|below|liquidity)\b", claim, re.I):
+            if min(claim_values) < max(source_values):
+                return 1.0
     return 0.0
 
 
 def score_claim_support(claim: str, source: str) -> float:
     artifact = BACKEND_DIR / "app" / "ml" / "artifacts" / "grounding_scorer.joblib"
+    normalized_claim = _normalized_support_text(claim)
+    if normalized_claim and normalized_claim in _normalized_support_text(source):
+        return 0.98
     features = _support_features(claim, source)
     cosine, overlap, numbers = features
     heuristic = float(max(0.0, min(1.0, 0.5 * cosine + 0.35 * overlap + 0.15 * numbers)))
-    if numbers == 1.0 and re.search(r"\b(violate|violates|exceed|exceeds)\b", claim, re.I):
-        heuristic = max(heuristic, 0.72)
+    if numbers == 1.0 and re.search(
+        r"\b(violate|violates|breach|breaches|exceed|exceeds|cannot|can not|not allowed|not permitted)\b",
+        claim,
+        re.I,
+    ):
+        heuristic = max(heuristic, 0.92)
     if artifact.exists():
         try:
             model = joblib.load(artifact)
@@ -50,6 +64,10 @@ def score_claim_support(claim: str, source: str) -> float:
         except Exception:
             pass
     return heuristic
+
+
+def _normalized_support_text(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9%]+", " ", text.lower())).strip()
 
 
 def grounding_score(claims: list[ParsedClaim]) -> float | None:
@@ -114,6 +132,8 @@ def determinism_run(
     db: Session,
     runs: int | None = None,
     alternate_model: str | None = None,
+    tenant_id: str | None = None,
+    user_id: str | None = None,
 ):
     from app.core.orchestrator import run_ask
     from app.models_db import Decision
@@ -129,6 +149,8 @@ def determinism_run(
             persist=True,
             temperature=settings.llm_temperature,
             model=alternate_model,
+            tenant_id=tenant_id,
+            user_id=user_id,
         )
         for _ in range(run_count)
     ]
