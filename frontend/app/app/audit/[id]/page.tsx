@@ -1,3 +1,6 @@
+"use client";
+
+import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -10,24 +13,46 @@ import {
 
 import { OutcomeBadge } from "@/components/OutcomeBadge";
 import { getAudit, type AuditDetail } from "@/lib/api";
-import { getClient } from "@/lib/clients";
+import { ClientRecord, getClient } from "@/lib/clients";
 import { cn } from "@/lib/utils";
 
-export const dynamic = "force-dynamic";
-
-export default async function AuditReplayPage({
+export default function AuditReplayPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id } = await params;
-  let audit: AuditDetail | null = null;
-  let error: string | null = null;
-  try {
-    audit = await getAudit(id);
-  } catch (err) {
-    error = err instanceof Error ? err.message : "Replay unavailable.";
-  }
+  const { id } = use(params);
+  const [audit, setAudit] = useState<AuditDetail | null>(null);
+  const [client, setClient] = useState<ClientRecord | undefined>();
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError(null);
+    setAudit(null);
+    setClient(undefined);
+
+    getAudit(id)
+      .then(async (row) => {
+        const loadedClient = row.client_id ? await getClient(row.client_id) : undefined;
+        if (!active) return;
+        setAudit(row);
+        setClient(loadedClient);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setError(err instanceof Error ? err.message : "Replay unavailable.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [id]);
 
   return (
     <div className="mx-auto max-w-[1480px] px-5 py-5 lg:px-8 lg:py-6">
@@ -39,19 +64,28 @@ export default async function AuditReplayPage({
         <span className="font-mono text-foreground/80">{id.slice(0, 8)}</span>
       </div>
 
-      {error || !audit ? (
+      {loading ? (
+        <div className="rounded-lg border bg-card p-4 text-sm text-muted-foreground">
+          Loading decision replay...
+        </div>
+      ) : error || !audit ? (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
           {error ?? "No audit record exists for this decision ID."}
         </div>
       ) : (
-        <AuditReplay audit={audit} />
+        <AuditReplay audit={audit} client={client} />
       )}
     </div>
   );
 }
 
-function AuditReplay({ audit }: { audit: AuditDetail }) {
-  const client = getClient(audit.client_id);
+function AuditReplay({
+  audit,
+  client,
+}: {
+  audit: AuditDetail;
+  client: ClientRecord | undefined;
+}) {
   const claimsKept = audit.decision_claims.filter((c) => c.kept).length;
   const claimsDropped = audit.decision_claims.filter((c) => !c.kept).length;
 

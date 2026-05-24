@@ -11,5 +11,11 @@ joblib
 httpx
 python-dotenv
 numpy
+argon2-cffi
+pyjwt
+pyotp
+email-validator
+cryptography
+structlog
 pytest
 pytest-cov

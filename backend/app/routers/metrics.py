@@ -1,18 +1,26 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.auth.deps import require_role
 from app.db import get_db
-from app.models_db import Decision
+from app.models_db import Decision, User
 from app.schemas import MetricsSummary
 
 
 router = APIRouter(tags=["metrics"])
 
 
+_METRICS_ROLES = ("compliance", "admin", "owner")
+
+
 @router.get("/metrics/summary", response_model=MetricsSummary)
-def metrics_summary(db: Session = Depends(get_db)) -> MetricsSummary:
-    decisions = db.scalars(select(Decision)).all()
+def metrics_summary(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role(*_METRICS_ROLES)),
+) -> MetricsSummary:
+    stmt = select(Decision).where(Decision.tenant_id == user.tenant_id)
+    decisions = db.scalars(stmt).all()
     total = len(decisions)
     if total == 0:
         return MetricsSummary(

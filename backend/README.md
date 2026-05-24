@@ -20,6 +20,11 @@ The backend works without an OpenRouter key by using the deterministic local LLM
 to use the real hosted model, or leave local mode off without a key to exercise the
 offline fallback classifier.
 
+For product-mode model work, keep answers grounded: the model writes dynamic claims
+from retrieved IPS/factsheet/regulatory snippets, then unsupported claims are dropped.
+Do not disable retrieval for wealth/compliance questions unless another trusted data
+source is replacing it.
+
 ## Useful checks
 
 ```bash
@@ -51,3 +56,17 @@ Then run:
 ```bash
 python -m scripts.check_openrouter --chat
 ```
+
+## Run the model evaluation gate
+
+```bash
+PYTHONPATH=. python -m scripts.run_model_eval \
+  --routes ollama:qwen2.5-coder:1.5b \
+  --limit 164 \
+  --determinism-runs 2 \
+  --print-approved-env
+```
+
+In production mode, normal inference requires a recent passing eval run unless
+`REQUIRE_RECENT_MODEL_EVAL_IN_PRODUCTION=0` is set. Candidate evaluation bypasses
+that gate so unapproved models can still be scored before promotion.

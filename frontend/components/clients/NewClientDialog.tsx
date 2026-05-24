@@ -22,9 +22,9 @@ import {
   ClientRecord,
   RiskProfile,
   addClient,
-  loadAllClients,
   nextClientId,
 } from "@/lib/clients";
+import { useClients } from "@/lib/clients-hooks";
 import { cn } from "@/lib/utils";
 
 const RISK_LABELS: Array<{ id: RiskProfile; label: string; hint: string }> = [
@@ -96,8 +96,16 @@ type Props = {
 export function NewClientDialog({ trigger, onCreated }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const suggestedId = useMemo(() => nextClientId(loadAllClients()), [open]);
+  const { clients } = useClients();
+  const suggestedId = useMemo(
+    () => nextClientId(clients),
+    // Recompute on dialog open AND whenever the roster reloads — so a freshly
+    // added client doesn't collide with the suggested ID on the next reopen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [open, clients.length],
+  );
   const [form, setForm] = useState<FormState>(() => emptyForm(suggestedId));
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (open) setForm(emptyForm(suggestedId));
@@ -119,9 +127,9 @@ export function NewClientDialog({ trigger, onCreated }: Props) {
 
   const valid = Object.keys(errors).length === 0;
 
-  function submit(event: FormEvent) {
+  async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!valid) return;
+    if (!valid || submitting) return;
 
     const record: ClientRecord = {
       id: form.id.trim().toUpperCase(),
@@ -139,19 +147,23 @@ export function NewClientDialog({ trigger, onCreated }: Props) {
       excludedRegions: parseList(form.excludedRegions),
     };
 
+    setSubmitting(true);
+    let created: ClientRecord;
     try {
-      addClient(record);
+      created = await addClient(record);
     } catch (err) {
+      setSubmitting(false);
       toast.error(err instanceof Error ? err.message : "Could not add client");
       return;
     }
 
-    toast.success(`${record.id} added to roster`, {
-      description: `${record.displayName} · IPS ${record.ipsVersion}`,
+    toast.success(`${created.id} added to roster`, {
+      description: `${created.displayName} · IPS ${created.ipsVersion}`,
     });
+    setSubmitting(false);
     setOpen(false);
-    onCreated?.(record);
-    router.push(`/app/clients/${record.id}`);
+    onCreated?.(created);
+    router.push(`/app/clients/${created.id}`);
   }
 
   return (
@@ -175,8 +187,8 @@ export function NewClientDialog({ trigger, onCreated }: Props) {
             Add a client to the roster
           </SheetTitle>
           <SheetDescription>
-            Stored locally for the session. In production, client master data
-            comes from your CRM.
+            Persists to the tenant&apos;s roster. In production, client master
+            data is typically synced from the firm&apos;s CRM.
           </SheetDescription>
         </SheetHeader>
 
@@ -336,8 +348,12 @@ export function NewClientDialog({ trigger, onCreated }: Props) {
                   </Button>
                 }
               />
-              <Button type="submit" disabled={!valid} className="h-9 rounded-md">
-                Add client
+              <Button
+                type="submit"
+                disabled={!valid || submitting}
+                className="h-9 rounded-md"
+              >
+                {submitting ? "Adding…" : "Add client"}
               </Button>
             </div>
           </SheetFooter>

@@ -5,7 +5,6 @@ import { useEffect, useState } from "react";
 import {
   CHANGE_EVENT,
   ClientRecord,
-  SEED_CLIENTS,
   loadAllClients,
 } from "@/lib/clients";
 
@@ -14,24 +13,37 @@ export function useClients(): {
   isHydrated: boolean;
   reload: () => void;
 } {
-  // SSR + first client render returns seed only so server and client agree
-  // on the initial markup. After mount we read localStorage and re-render.
-  const [clients, setClients] = useState<ClientRecord[]>(SEED_CLIENTS);
+  // Start empty so server-rendered HTML matches the first client render.
+  // After mount we fetch from the API and re-render. Re-fetches happen when
+  // anyone in the app dispatches `CHANGE_EVENT` (the New Client dialog does
+  // this on a successful create).
+  const [clients, setClients] = useState<ClientRecord[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
 
   function refresh() {
-    setClients(loadAllClients());
-    setIsHydrated(true);
+    let cancelled = false;
+    loadAllClients()
+      .then((rows) => {
+        if (cancelled) return;
+        setClients(rows);
+        setIsHydrated(true);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setIsHydrated(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }
 
   useEffect(() => {
-    refresh();
+    const cancel = refresh();
     const onChange = () => refresh();
     window.addEventListener(CHANGE_EVENT, onChange);
-    window.addEventListener("storage", onChange);
     return () => {
       window.removeEventListener(CHANGE_EVENT, onChange);
-      window.removeEventListener("storage", onChange);
+      cancel();
     };
   }, []);
 

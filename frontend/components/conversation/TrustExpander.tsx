@@ -17,6 +17,10 @@ function fmtPct(value: number | null | undefined) {
   return `${Math.round(value * 100)}%`;
 }
 
+function fmtMs(value: number | null | undefined) {
+  return typeof value === "number" ? `${value}ms` : "—";
+}
+
 export function TrustMetaBar({ result, latencyMs, groundingScore }: Props) {
   const [open, setOpen] = useState(false);
   const sourceCount = result.citations.length;
@@ -63,6 +67,26 @@ export function TrustMetaBar({ result, latencyMs, groundingScore }: Props) {
             label="Determinism"
             value={fmtPct(result.trust.determinism_score)}
             hint="Nightly job · 24h avg"
+          />
+          <Row
+            icon={Hash}
+            label="Model route"
+            value={
+              <code className="font-mono text-[11px] text-foreground">
+                {result.trust.model_route ?? "not reported"}
+              </code>
+            }
+          />
+          <Row
+            icon={Layers}
+            label="Latency path"
+            value={`${fmtMs(result.trust.retrieval_ms)} retrieve · ${fmtMs(result.trust.generation_ms)} generate · ${fmtMs(result.trust.verification_ms)} verify`}
+          />
+          <Row
+            icon={Sigma}
+            label="Evidence quality"
+            value={fmtPct(result.trust.evidence_quality)}
+            hint={result.trust.cache_hit ? "cache hit" : "fresh retrieval"}
           />
           <Row
             icon={Hash}

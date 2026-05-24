@@ -1,9 +1,9 @@
 "use client";
 
-import { ArrowUpRight, Copy, Flag, ShieldAlert } from "lucide-react";
+import { ArrowUpRight, CheckCircle2, Copy, Flag, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 
-import type { AskResponse } from "@/lib/api";
+import type { AskResponse, Escalation } from "@/lib/api";
 import { classify, outcomeMeta } from "@/lib/outcomes";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -15,6 +15,8 @@ type AssistantMessageProps = {
   latencyMs?: number;
   groundingScore?: number | null;
   citations: CitationRef[];
+  escalation?: Escalation | null;
+  escalating?: boolean;
   onFocusSource?: (sourceId: string) => void;
   onEscalate?: () => void;
   onMarkResolved?: () => void;
@@ -32,6 +34,8 @@ export function AssistantMessage({
   latencyMs,
   groundingScore,
   citations,
+  escalation,
+  escalating = false,
   onFocusSource,
   onEscalate,
   onMarkResolved,
@@ -81,15 +85,23 @@ export function AssistantMessage({
         />
         <div className="flex flex-wrap items-center gap-1.5">
           {(kind === "flagged" || kind === "refused") && (
-            <Button
-              variant="default"
-              size="sm"
-              className="h-7 gap-1.5 rounded-md text-xs"
-              onClick={onEscalate}
-            >
-              <ShieldAlert className="h-3 w-3" />
-              Escalate to compliance
-            </Button>
+            escalation ? (
+              <span className="inline-flex h-7 items-center gap-1.5 rounded-md border state-grounded px-2.5 text-xs">
+                <CheckCircle2 className="h-3 w-3" />
+                Escalated · {escalation.status.replaceAll("_", " ")}
+              </span>
+            ) : (
+              <Button
+                variant="default"
+                size="sm"
+                className="h-7 gap-1.5 rounded-md text-xs"
+                onClick={onEscalate}
+                disabled={escalating}
+              >
+                <ShieldAlert className="h-3 w-3" />
+                {escalating ? "Opening escalation" : "Escalate to compliance"}
+              </Button>
+            )
           )}
           {kind === "answered" && (
             <Button

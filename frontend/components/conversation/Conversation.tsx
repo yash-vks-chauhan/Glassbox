@@ -4,7 +4,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ChevronLeft, ChevronRight, ScanSearch } from "lucide-react";
 
-import { ask, type AskResponse } from "@/lib/api";
+import {
+  askStream,
+  createEscalation,
+  type AskResponse,
+  type AskStreamEvent,
+  type Escalation,
+} from "@/lib/api";
 import { type ClientRecord } from "@/lib/clients";
 import { AssistantMessage } from "@/components/conversation/AssistantMessage";
 import { Composer } from "@/components/conversation/Composer";
@@ -21,6 +27,9 @@ type Message = {
   latencyMs?: number;
   groundingScore?: number | null;
   citations?: CitationRef[];
+  error?: string;
+  escalation?: Escalation | null;
+  escalating?: boolean;
   timestamp: string;
 };
 
@@ -34,34 +43,26 @@ const SUGGESTIONS = [
   "Summarise this client's mandate constraints.",
 ];
 
-function decorateCitations(result: AskResponse, answerText: string | null): CitationRef[] {
-  const text = answerText ?? "";
-  // If the model already emitted [1], [2] tokens, keep them.
-  const tokens = Array.from(text.matchAll(/\[(\d+)\]/g)).map((m) => Number(m[1]));
-  const uniqueTokens = Array.from(new Set(tokens));
-  if (uniqueTokens.length && result.citations.length >= uniqueTokens.length) {
-    return uniqueTokens.map((n, i) => {
-      const c = result.citations[Math.min(i, result.citations.length - 1)];
-      return {
-        index: n,
-        sourceId: c.source_id,
-        sourceType: c.source_type,
-        snippet: c.snippet,
-      };
+function decorateCitations(result: AskResponse): CitationRef[] {
+  const seen = new Set<string>();
+  const refs: CitationRef[] = [];
+  result.citations.forEach((c) => {
+    const key = `${c.source_id}:${c.source_type}:${c.snippet}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    refs.push({
+      index: refs.length + 1,
+      sourceId: c.source_id,
+      sourceType: c.source_type,
+      snippet: c.snippet,
     });
-  }
-  // Otherwise number sequentially from the citations array.
-  return result.citations.map((c, i) => ({
-    index: i + 1,
-    sourceId: c.source_id,
-    sourceType: c.source_type,
-    snippet: c.snippet,
-  }));
+  });
+  return refs;
 }
 
 function injectCitationTokens(text: string, count: number): string {
   if (!text) return text;
-  if (/\[\d+\]/.test(text)) return text;
+  if (/\[(?:\d+|[A-Z][A-Z0-9_-]+)\]/.test(text)) return text;
   if (count === 0) return text;
   // Append a footnote run at the end so users have a clickable target.
   const tokens = Array.from({ length: count }, (_, i) => `[${i + 1}]`).join("");
@@ -75,6 +76,7 @@ function injectCitationTokens(text: string, count: number): string {
 export function Conversation({ client }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
+  const [streamStatus, setStreamStatus] = useState<string | null>(null);
   const [focusedSourceId, setFocusedSourceId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
 
@@ -98,14 +100,18 @@ export function Conversation({ client }: Props) {
     };
     setMessages((m) => [...m, userMsg]);
     setLoading(true);
+    setStreamStatus("Request accepted");
     const t0 = performance.now();
     try {
-      const result = await ask({ question: text, client_id: client.id });
-      const latencyMs = Math.round(performance.now() - t0);
+      const result = await askStream(
+        { question: text, client_id: client.id },
+        (event) => setStreamStatus(statusForEvent(event)),
+      );
+      const latencyMs = result.trust.total_ms ?? Math.round(performance.now() - t0);
+      const decorated = decorateCitations(result);
       const answerWithTokens = result.answer
-        ? injectCitationTokens(result.answer, result.citations.length)
+        ? injectCitationTokens(result.answer, decorated.length)
         : null;
-      const decorated = decorateCitations(result, answerWithTokens);
       const enriched: AskResponse = { ...result, answer: answerWithTokens };
       setMessages((m) => [
         ...m,
@@ -123,11 +129,56 @@ export function Conversation({ client }: Props) {
         description: `Logged as ${result.decision_id.slice(0, 8)}.`,
       });
     } catch (err) {
+      const message = err instanceof Error ? err.message : "Backend unavailable.";
+      setMessages((m) => [
+        ...m,
+        {
+          id: `err-${Date.now()}`,
+          role: "assistant",
+          error: message,
+          timestamp: new Date().toISOString(),
+        },
+      ]);
       toast.error("Request failed", {
-        description: err instanceof Error ? err.message : "Backend unavailable.",
+        description: message,
       });
     } finally {
       setLoading(false);
+      setStreamStatus(null);
+    }
+  }
+
+  function updateMessage(
+    decisionId: string,
+    patch: Partial<Pick<Message, "escalation" | "escalating">>,
+  ) {
+    setMessages((items) =>
+      items.map((item) =>
+        item.result?.decision_id === decisionId ? { ...item, ...patch } : item,
+      ),
+    );
+  }
+
+  async function handleEscalate(result: AskResponse) {
+    updateMessage(result.decision_id, { escalating: true });
+    try {
+      const escalation = await createEscalation({
+        decision_id: result.decision_id,
+        reason: result.outcome === "flagged" ? "flagged_decision_review" : "insufficient_evidence_review",
+        note: result.refusal_reason ?? result.answer ?? null,
+      });
+      updateMessage(result.decision_id, { escalation, escalating: false });
+      toast.success("Escalation opened", {
+        description: `Compliance owns it now · SLA ${new Date(escalation.sla_due_at).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        })}`,
+      });
+    } catch (err) {
+      updateMessage(result.decision_id, { escalating: false });
+      toast.error("Escalation failed", {
+        description: err instanceof Error ? err.message : "Could not create escalation.",
+      });
     }
   }
 
@@ -178,24 +229,28 @@ export function Conversation({ client }: Props) {
                   </div>
                 );
               }
-              return (
+              return m.error ? (
+                <InlineErrorMessage key={m.id} message={m.error} />
+              ) : (
                 <AssistantMessage
                   key={m.id}
                   result={m.result!}
                   latencyMs={m.latencyMs}
                   groundingScore={m.groundingScore}
                   citations={m.citations ?? []}
+                  escalation={m.escalation}
+                  escalating={m.escalating}
                   onFocusSource={(id) => {
                     setFocusedSourceId(id);
                     setPanelOpen(true);
                   }}
-                  onEscalate={() => toast("Escalation routed", { description: "Compliance · DACH desk" })}
+                  onEscalate={() => handleEscalate(m.result!)}
                   onMarkResolved={() => toast.success("Marked resolved")}
                 />
               );
             })}
 
-            {loading ? <Thinking /> : null}
+            {loading ? <Thinking status={streamStatus} /> : null}
           </div>
         </div>
 
@@ -242,6 +297,22 @@ export function Conversation({ client }: Props) {
   );
 }
 
+function InlineErrorMessage({ message }: { message: string }) {
+  return (
+    <div className="rounded-r-lg border border-l-[3px] border-l-destructive bg-card p-4 text-sm">
+      <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+        GlassBox · request failed
+      </div>
+      <p className="mt-2 text-foreground">
+        I could not complete that request. {message}
+      </p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        The question stayed in the thread so an advisor can retry or escalate with context.
+      </p>
+    </div>
+  );
+}
+
 function EmptyState({ clientName }: { clientName: string }) {
   return (
     <div className="rounded-xl border border-dashed bg-card/40 p-8 text-center">
@@ -259,13 +330,22 @@ function EmptyState({ clientName }: { clientName: string }) {
   );
 }
 
-function Thinking() {
+function Thinking({ status }: { status: string | null }) {
   return (
     <div className="flex items-center gap-3 px-3">
       <span className="inline-flex h-2 w-2 animate-pulse rounded-full" style={{ background: "hsl(var(--state-grounded))" }} />
       <span className="text-[12px] uppercase tracking-[0.14em] text-muted-foreground">
-        Retrieving sources, verifying claims…
+        {status ?? "Retrieving sources, verifying claims..."}
       </span>
     </div>
   );
+}
+
+function statusForEvent(event: AskStreamEvent): string {
+  if (event.event === "accepted") return "Request accepted";
+  if (event.event === "retrieval_done") return "Evidence retrieved";
+  if (event.event === "generation_started") return "Generating grounded answer";
+  if (event.event === "verification_done") return "Verifying citations";
+  if (event.event === "final") return "Final decision ready";
+  return "Request failed";
 }
