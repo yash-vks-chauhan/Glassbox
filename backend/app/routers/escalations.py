@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-from datetime import timedelta
-
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.auth.deps import current_user, require_role
+from app.core.escalations import ACTIVE_STATUSES, ESCALATION_SLA, append_event
 from app.db import get_db
-from app.models_db import Decision, Escalation, EscalationEvent, User, utcnow
+from app.models_db import Decision, Escalation, User, utcnow
 from app.schemas import (
     EscalationCreateRequest,
     EscalationEventOut,
@@ -22,7 +21,6 @@ router = APIRouter(prefix="/escalations", tags=["escalations"])
 
 _TENANT_WIDE_ROLES = frozenset({"compliance", "admin", "owner"})
 _REVIEWER_ROLES = ("compliance", "admin", "owner")
-_ACTIVE_STATUSES = ("open", "in_review")
 
 
 def _scoped_decision_query(user: User):
@@ -56,13 +54,13 @@ def create_escalation(
         .where(
             Escalation.tenant_id == user.tenant_id,
             Escalation.decision_id == decision.id,
-            Escalation.status.in_(_ACTIVE_STATUSES),
+            Escalation.status.in_(ACTIVE_STATUSES),
         )
         .options(selectinload(Escalation.events), selectinload(Escalation.decision))
         .order_by(Escalation.created_at.desc())
     )
     if existing is not None:
-        _append_event(
+        append_event(
             db,
             existing,
             actor=user,
@@ -84,7 +82,7 @@ def create_escalation(
         priority="high" if decision.outcome in {"flagged", "refused"} else "normal",
         reason=request.reason,
         note=request.note,
-        sla_due_at=now + timedelta(hours=4),
+        sla_due_at=now + ESCALATION_SLA,
         created_at=now,
         updated_at=now,
     )
@@ -98,14 +96,14 @@ def create_escalation(
             .where(
                 Escalation.tenant_id == user.tenant_id,
                 Escalation.decision_id == decision.id,
-                Escalation.status.in_(_ACTIVE_STATUSES),
+                Escalation.status.in_(ACTIVE_STATUSES),
             )
             .options(selectinload(Escalation.events), selectinload(Escalation.decision))
             .order_by(Escalation.created_at.desc())
         )
         if existing is None:
             raise
-        _append_event(
+        append_event(
             db,
             existing,
             actor=user,
@@ -115,7 +113,7 @@ def create_escalation(
         db.commit()
         db.refresh(existing)
         return _out(existing)
-    _append_event(
+    append_event(
         db,
         escalation,
         actor=user,
@@ -177,7 +175,7 @@ def update_escalation(
 
     if changed:
         row.updated_at = utcnow()
-        _append_event(
+        append_event(
             db,
             row,
             actor=user,
@@ -201,29 +199,6 @@ def _resolve_assignee(db: Session, actor: User, assigned_to_user_id: str) -> Use
             detail="Assignee must be compliance, admin, or owner.",
         )
     return target
-
-
-def _append_event(
-    db: Session,
-    escalation: Escalation,
-    *,
-    actor: User,
-    action: str,
-    from_status: str | None = None,
-    to_status: str | None = None,
-    note: str | None = None,
-) -> None:
-    db.add(
-        EscalationEvent(
-            tenant_id=escalation.tenant_id,
-            escalation_id=escalation.id,
-            actor_user_id=actor.id,
-            action=action,
-            from_status=from_status,
-            to_status=to_status,
-            note=note,
-        )
-    )
 
 
 def _out(row: Escalation) -> EscalationOut:

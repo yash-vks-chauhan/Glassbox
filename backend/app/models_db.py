@@ -457,6 +457,78 @@ class EscalationEvent(Base):
     escalation: Mapped[Escalation] = relationship(back_populates="events")
 
 
+class DecisionReview(Base):
+    """A compliance reviewer's verdict on one decision. Append-only: a later
+    review supersedes an earlier one without editing it."""
+
+    __tablename__ = "decision_reviews"
+    __table_args__ = (
+        Index("ix_decision_reviews_tenant_id", "tenant_id"),
+        Index("ix_decision_reviews_decision_id", "decision_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False
+    )
+    decision_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("decisions.id"), nullable=False
+    )
+    escalation_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("escalations.id"), nullable=True
+    )
+    reviewer_user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id"), nullable=False
+    )
+    # correct | needs_signoff | incorrect | insufficient_evidence
+    assessment: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    corrected_outcome: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+    claim_labels: Mapped[list["ClaimLabel"]] = relationship(
+        back_populates="review", cascade="all, delete-orphan"
+    )
+
+
+class ClaimLabel(Base):
+    """Reviewer verdict on one claim: did its cited source support it?
+    Claim and source text are copied so the row stands alone as a labelled
+    training example for the grounding scorer."""
+
+    __tablename__ = "claim_labels"
+    __table_args__ = (
+        Index("ix_claim_labels_tenant_id", "tenant_id"),
+        Index("ix_claim_labels_review_id", "review_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False
+    )
+    review_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("decision_reviews.id"), nullable=False
+    )
+    decision_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("decisions.id"), nullable=False
+    )
+    claim_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("decision_claims.id"), nullable=False
+    )
+    claim_text: Mapped[str] = mapped_column(Text, nullable=False)
+    cited_source_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    supported: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+    review: Mapped[DecisionReview] = relationship(back_populates="claim_labels")
+
+
 class RateLimitBucket(Base):
     """Phase E — persistent per-(subject, route_class) sliding window.
 

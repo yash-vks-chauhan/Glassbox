@@ -3,6 +3,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.auth.deps import current_user, require_role
+from app.core.reviews import (
+    active_escalation,
+    corrections_for_decision,
+    escalation_brief,
+    reviews_for_decision,
+)
 from app.core.security.audit_hash import verify_chain
 from app.db import get_db
 from app.models_db import Decision, User
@@ -106,6 +112,7 @@ def get_audit(
         ],
         decision_claims=[
             ClaimOut(
+                id=claim.id,
                 claim_text=claim.claim_text,
                 cited_source_id=claim.cited_source_id,
                 verified=claim.verified,
@@ -113,6 +120,11 @@ def get_audit(
             )
             for claim in row.claims
         ],
+        reviews=reviews_for_decision(db, tenant_id=row.tenant_id, decision_id=row.id),
+        corrections=corrections_for_decision(db, tenant_id=row.tenant_id, decision_id=row.id),
+        active_escalation=escalation_brief(
+            active_escalation(db, tenant_id=row.tenant_id, decision_id=row.id)
+        ),
     )
 
 

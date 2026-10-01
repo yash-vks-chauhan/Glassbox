@@ -29,3 +29,6 @@ frontend/test-results/
 
 # Claude Code local settings (machine-specific permissions)
 .claude/
+
+# Reviewer-labelled training data exported from a live database
+backend/data/training/review_labels.jsonl

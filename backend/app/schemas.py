@@ -1,5 +1,5 @@
 import re
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, model_validator
 
@@ -232,6 +232,7 @@ class RetrievedChunkOut(BaseModel):
 
 
 class ClaimOut(BaseModel):
+    id: str | None = None
     claim_text: str
     cited_source_id: str | None = None
     verified: bool = False
@@ -249,10 +250,83 @@ class AuditSummary(BaseModel):
     latency_ms: int
 
 
+ReviewAssessment = Literal["correct", "needs_signoff", "incorrect", "insufficient_evidence"]
+ReviewReasonCode = Literal[
+    "concentration_breach",
+    "liquidity_floor",
+    "sector_exclusion",
+    "region_exclusion",
+    "tax_out_of_scope",
+    "suitability_mismatch",
+    "other",
+]
+
+
+class ClaimVerdict(StrictModel):
+    claim_id: str = Field(min_length=1, max_length=64)
+    supported: bool
+
+
+class ReviewCreateRequest(StrictModel):
+    assessment: ReviewAssessment
+    reason_code: ReviewReasonCode
+    notes: str | None = Field(default=None, max_length=4_000)
+    # Only meaningful when the reviewer says the AI was wrong.
+    corrected_outcome: Literal["answered", "flagged", "refused"] | None = None
+    claim_verdicts: list[ClaimVerdict] = Field(default_factory=list, max_length=200)
+
+    @model_validator(mode="after")
+    def _correction_needs_incorrect_assessment(self) -> "ReviewCreateRequest":
+        if self.corrected_outcome and self.assessment != "incorrect":
+            raise ValueError("corrected_outcome is only allowed when assessment is 'incorrect'")
+        return self
+
+
+class ClaimLabelOut(BaseModel):
+    claim_id: str
+    claim_text: str
+    cited_source_id: str | None = None
+    supported: bool
+
+
+class ReviewOut(BaseModel):
+    id: str
+    decision_id: str
+    escalation_id: str | None = None
+    escalation_status: str | None = None
+    reviewer_user_id: str
+    reviewer_email: str | None = None
+    assessment: str
+    reason_code: str
+    notes: str | None = None
+    corrected_outcome: str | None = None
+    created_at: str
+    claim_labels: list[ClaimLabelOut] = []
+
+
+class CorrectionOut(BaseModel):
+    id: str
+    corrected_by_user_id: str
+    corrected_outcome: str | None = None
+    note: str
+    created_at: str
+
+
+class EscalationBrief(BaseModel):
+    id: str
+    status: str
+    priority: str
+    sla_due_at: str
+    assigned_to_user_id: str | None = None
+
+
 class AuditDetail(AuditSummary):
     final_answer: str | None
     retrieved_chunks: list[RetrievedChunkOut]
     decision_claims: list[ClaimOut]
+    reviews: list[ReviewOut] = []
+    corrections: list[CorrectionOut] = []
+    active_escalation: EscalationBrief | None = None
 
 
 class AuditVerifyResponse(BaseModel):
@@ -316,6 +390,34 @@ class MetricsSummary(BaseModel):
     flagged_rate: float
     avg_determinism: float | None
     audit_completeness: float
+    reviews: int = 0
+    labelled_claims: int = 0
+    # answered / flagged / refused / fallback -> number of decisions
+    outcome_counts: dict[str, int] = {}
+
+
+class MetricsPoint(BaseModel):
+    """One UTC day. Rates are None on days without decisions, so charts
+    show a gap instead of a misleading zero."""
+
+    date: str
+    total: int
+    answered: int = 0
+    flagged: int = 0
+    refused: int = 0
+    fallback: int = 0
+    hallucination_rate: float | None = None
+    refusal_rate: float | None = None
+    flagged_rate: float | None = None
+    audit_completeness: float | None = None
+    avg_determinism: float | None = None
+
+
+class MetricsTimeseries(BaseModel):
+    days: int
+    start: str
+    end: str
+    points: list[MetricsPoint]
 
 
 # ---------------------------------------------------------------------------

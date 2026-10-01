@@ -19,6 +19,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { listEscalations, updateEscalation, type Escalation } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import { useClients } from "@/lib/clients-hooks";
 import { type OutcomeKind } from "@/lib/outcomes";
 import { cn } from "@/lib/utils";
@@ -48,6 +49,7 @@ const OUTCOMES: Array<{ id: OutcomeKind | "all"; label: string }> = [
 
 export default function ReviewQueuePage() {
   const { clients } = useClients();
+  const { user } = useAuth();
   const getClient = (id: string | null | undefined) =>
     id ? clients.find((c) => c.id === id) : undefined;
   const [escalations, setEscalations] = useState<Escalation[] | null>(null);
@@ -138,7 +140,11 @@ export default function ReviewQueuePage() {
     URL.revokeObjectURL(url);
   }
 
-  async function bulkUpdate(status: Escalation["status"], label: string) {
+  async function bulkUpdate(
+    status: Escalation["status"],
+    label: string,
+    { claim = false }: { claim?: boolean } = {},
+  ) {
     if (selected.size === 0) return;
     const ids = Array.from(selected);
     try {
@@ -147,6 +153,8 @@ export default function ReviewQueuePage() {
           updateEscalation(id, {
             status,
             note: label,
+            // Claiming takes ownership as well as moving the item along.
+            ...(claim && user ? { assigned_to_user_id: user.user_id } : {}),
           }),
         ),
       );
@@ -237,7 +245,7 @@ export default function ReviewQueuePage() {
       {selected.size > 0 ? (
         <div className="mb-2 flex items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs">
           <span className="font-medium">{selected.size} selected</span>
-          <Button variant="outline" size="sm" className="h-7 rounded-md text-xs" onClick={() => bulkUpdate("in_review", "Claimed for review")}>Claim</Button>
+          <Button variant="outline" size="sm" className="h-7 rounded-md text-xs" onClick={() => bulkUpdate("in_review", "Claimed for review", { claim: true })}>Claim</Button>
           <Button variant="outline" size="sm" className="h-7 rounded-md text-xs" onClick={() => bulkUpdate("resolved", "Marked reviewed")}>Mark reviewed</Button>
           <button className="ml-auto text-muted-foreground" onClick={() => setSelected(new Set())}>
             Clear
@@ -275,7 +283,10 @@ export default function ReviewQueuePage() {
           <ul>
             {rows.map((row) => {
               const c = getClient(row.client_id);
-              const s = sla(row.sla_due_at);
+              const closed = row.status === "resolved" || row.status === "cancelled";
+              const s: SlaState = closed
+                ? { ageMin: 0, label: "closed", tone: "ok" }
+                : sla(row.sla_due_at);
               return (
                 <li
                   key={row.id}
@@ -314,6 +325,13 @@ export default function ReviewQueuePage() {
                         {row.status.replaceAll("_", " ")}
                       </span>
                       <OutcomeBadge result={{ outcome: row.decision_outcome ?? "flagged" }} size="sm" />
+                      <span className="text-[11px] text-muted-foreground">
+                        {row.assigned_to_user_id === null
+                          ? "unclaimed"
+                          : row.assigned_to_user_id === user?.user_id
+                            ? "claimed by you"
+                            : "claimed"}
+                      </span>
                     </div>
                   </div>
                   <div className="px-3 py-2.5 text-right tabular">

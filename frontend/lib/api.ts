@@ -64,6 +64,31 @@ export type MetricsSummary = {
   flagged_rate: number;
   avg_determinism: number | null;
   audit_completeness: number;
+  reviews: number;
+  labelled_claims: number;
+  outcome_counts: Record<"answered" | "flagged" | "refused" | "fallback", number>;
+};
+
+/** One UTC day; rates are null on days without decisions. */
+export type MetricsPoint = {
+  date: string;
+  total: number;
+  answered: number;
+  flagged: number;
+  refused: number;
+  fallback: number;
+  hallucination_rate: number | null;
+  refusal_rate: number | null;
+  flagged_rate: number | null;
+  audit_completeness: number | null;
+  avg_determinism: number | null;
+};
+
+export type MetricsTimeseries = {
+  days: number;
+  start: string;
+  end: string;
+  points: MetricsPoint[];
 };
 
 export type AuditDetail = {
@@ -87,14 +112,76 @@ export type AuditDetail = {
     selected_reason?: string | null;
   }>;
   decision_claims: Array<{
+    id: string | null;
     claim_text: string;
     cited_source_id: string | null;
     verified: boolean;
     kept: boolean;
   }>;
+  reviews: Review[];
+  corrections: Correction[];
+  active_escalation: EscalationBrief | null;
 };
 
-export type AuditSummary = Omit<AuditDetail, "final_answer" | "retrieved_chunks" | "decision_claims">;
+export type AuditSummary = Omit<
+  AuditDetail,
+  "final_answer" | "retrieved_chunks" | "decision_claims" | "reviews" | "corrections" | "active_escalation"
+>;
+
+export type ReviewAssessment = "correct" | "needs_signoff" | "incorrect" | "insufficient_evidence";
+
+export type ReviewReasonCode =
+  | "concentration_breach"
+  | "liquidity_floor"
+  | "sector_exclusion"
+  | "region_exclusion"
+  | "tax_out_of_scope"
+  | "suitability_mismatch"
+  | "other";
+
+export type Review = {
+  id: string;
+  decision_id: string;
+  escalation_id: string | null;
+  escalation_status: string | null;
+  reviewer_user_id: string;
+  reviewer_email: string | null;
+  assessment: ReviewAssessment;
+  reason_code: ReviewReasonCode;
+  notes: string | null;
+  corrected_outcome: "answered" | "flagged" | "refused" | null;
+  created_at: string;
+  claim_labels: Array<{
+    claim_id: string;
+    claim_text: string;
+    cited_source_id: string | null;
+    supported: boolean;
+  }>;
+};
+
+export type Correction = {
+  id: string;
+  corrected_by_user_id: string;
+  corrected_outcome: string | null;
+  note: string;
+  created_at: string;
+};
+
+export type EscalationBrief = {
+  id: string;
+  status: string;
+  priority: string;
+  sla_due_at: string;
+  assigned_to_user_id: string | null;
+};
+
+export type ReviewInput = {
+  assessment: ReviewAssessment;
+  reason_code: ReviewReasonCode;
+  notes: string | null;
+  corrected_outcome: Review["corrected_outcome"];
+  claim_verdicts: Array<{ claim_id: string; supported: boolean }>;
+};
 
 export type AuditVerifyReport = {
   tenant_id: string;
@@ -296,6 +383,24 @@ async function readErrorDetail(response: Response): Promise<unknown> {
   }
 }
 
+/**
+ * Human-readable message from a FastAPI error body: `{"detail": "..."}` for
+ * HTTPException, `{"detail": [{"msg": ...}]}` for validation errors.
+ */
+function errorMessage(detail: unknown): string | undefined {
+  if (typeof detail === "string") return detail || undefined;
+  if (!detail || typeof detail !== "object" || !("detail" in detail)) return undefined;
+  const inner = (detail as { detail: unknown }).detail;
+  if (typeof inner === "string") return inner;
+  if (Array.isArray(inner)) {
+    const messages = inner
+      .map((item) => (item && typeof item === "object" && "msg" in item ? String(item.msg) : ""))
+      .filter(Boolean);
+    return messages.length ? messages.join("; ") : undefined;
+  }
+  return undefined;
+}
+
 type RequestOptions = {
   // If true, skip the refresh-retry loop and surface 401s directly. Used
   // by the auth endpoints themselves to avoid recursion (refresh-on-refresh).
@@ -336,7 +441,7 @@ export async function request<T>(
 
   if (!response.ok) {
     const detail = await readErrorDetail(response);
-    throw new ApiError(response.status, detail);
+    throw new ApiError(response.status, detail, errorMessage(detail));
   }
 
   // 204 / empty body — return undefined cast to T so callers don't need to
@@ -612,6 +717,10 @@ export function getMetrics() {
   return request<MetricsSummary>("/metrics/summary");
 }
 
+export function getMetricsTimeseries(days = 14) {
+  return request<MetricsTimeseries>(`/metrics/timeseries?days=${days}`);
+}
+
 export function getAuditSummaries(limit = 20) {
   return request<AuditSummary[]>(`/audit?limit=${limit}`);
 }
@@ -702,6 +811,13 @@ export function submitAccessRequest(input: {
   website: string | null;
 }) {
   return request<{ status: "received" }>("/public/access-requests", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function submitReview(decisionId: string, input: ReviewInput) {
+  return request<Review>(`/decisions/${encodeURIComponent(decisionId)}/reviews`, {
     method: "POST",
     body: JSON.stringify(input),
   });

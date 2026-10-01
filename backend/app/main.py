@@ -26,6 +26,7 @@ from app.routers import (
     metrics,
     models,
     public,
+    reviews,
 )
 
 
@@ -111,4 +112,5 @@ app.include_router(models.router)
 app.include_router(admin_users.router)
 app.include_router(admin_system.router)
 app.include_router(public.router)
+app.include_router(reviews.router)
 app.include_router(admin_users.self_router)
