@@ -1,7 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+import json
+from datetime import datetime, timezone
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.audit_export import (
+    CSV_MAX_ROWS,
+    PDF_MAX_DECISIONS,
+    AuditFilters,
+    export_csv,
+    export_pdf,
+    filtered_decisions,
+    load_for_export,
+)
 from app.core.auth.deps import current_user, require_role
 from app.core.reviews import (
     active_escalation,
@@ -11,7 +24,7 @@ from app.core.reviews import (
 )
 from app.core.security.audit_hash import verify_chain
 from app.db import get_db
-from app.models_db import Decision, User
+from app.models_db import Decision, SecurityEvent, User
 from app.schemas import (
     AuditDetail,
     AuditSummary,
@@ -38,23 +51,104 @@ def _scoped_decision_query(user: User):
     return stmt
 
 
+Outcome = Literal["answered", "flagged", "refused", "fallback"]
+
+
+def audit_filters(
+    outcome: Outcome | None = Query(default=None),
+    client_id: str | None = Query(default=None, max_length=64),
+    since: datetime | None = Query(default=None, description="inclusive, ISO 8601"),
+    until: datetime | None = Query(default=None, description="exclusive, ISO 8601"),
+    grounding: Literal["low"] | None = Query(default=None),
+    q: str | None = Query(default=None, max_length=200),
+) -> AuditFilters:
+    return AuditFilters(
+        outcome=outcome,
+        client_id=client_id or None,
+        since=_utc(since),
+        until=_utc(until),
+        low_grounding=grounding == "low",
+        q=(q or "").strip() or None,
+    )
+
+
+def _utc(value: datetime | None) -> datetime | None:
+    if value is not None and value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
 @router.get("/audit", response_model=list[AuditSummary])
 def list_audit(
+    response: Response,
     limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    filters: AuditFilters = Depends(audit_filters),
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> list[AuditSummary]:
-    rows = db.scalars(
-        _scoped_decision_query(user)
-        .order_by(Decision.created_at.desc())
-        .limit(limit)
-    ).all()
+    """Newest first. The total number of matching decisions is returned in
+    the ``X-Total-Count`` header for paging."""
+    stmt = filtered_decisions(user, filters)
+    total = db.scalar(select(func.count()).select_from(stmt.order_by(None).subquery()))
+    response.headers["X-Total-Count"] = str(total)
+    rows = db.scalars(stmt.limit(limit).offset(offset)).all()
     return [_summary(row) for row in rows]
 
 
-# IMPORTANT: register this BEFORE /audit/{decision_id}. FastAPI matches
-# top-down, so a generic path-parameter route would otherwise swallow
-# /audit/verify and try to load a Decision with id "verify".
+# IMPORTANT: register /audit/export and /audit/verify BEFORE /audit/{decision_id}.
+@router.get("/audit/export")
+def export_audit(
+    request: Request,
+    format: Literal["csv", "pdf"] = Query(default="csv"),
+    filters: AuditFilters = Depends(audit_filters),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role(*_VERIFY_ROLES)),
+) -> Response:
+    """Download the filtered audit log as CSV or as a PDF audit binder.
+    Every export is itself recorded as a security event."""
+    stmt = filtered_decisions(user, filters)
+    total = db.scalar(select(func.count()).select_from(stmt.order_by(None).subquery())) or 0
+    cap = PDF_MAX_DECISIONS if format == "pdf" else CSV_MAX_ROWS
+    if total > cap:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"{total} decisions match; a {format.upper()} export holds at most {cap}. "
+                "Narrow the date range or filters."
+            ),
+        )
+    decisions = load_for_export(db, stmt)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+    if format == "pdf":
+        body = export_pdf(db, user=user, decisions=decisions, filters=filters)
+        media_type, filename = "application/pdf", f"glassbox-audit-binder-{stamp}.pdf"
+    else:
+        body = export_csv(db, decisions).encode("utf-8")
+        media_type, filename = "text/csv; charset=utf-8", f"glassbox-audit-{stamp}.csv"
+
+    db.add(
+        SecurityEvent(
+            tenant_id=user.tenant_id,
+            user_id=user.id,
+            kind="audit_export",
+            ip=request.client.host if request.client else None,
+            user_agent=(request.headers.get("user-agent") or "")[:512] or None,
+            metadata_json=json.dumps(
+                {"format": format, "decisions": total, "filters": filters.describe()}
+            ),
+        )
+    )
+    db.commit()
+    return Response(
+        content=body,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# FastAPI matches routes top-down, so the generic path-parameter route below
+# would otherwise swallow these and try to load a Decision with id "verify".
 @router.get("/audit/verify", response_model=AuditVerifyResponse)
 def verify_audit_chain(
     db: Session = Depends(get_db),
@@ -94,8 +188,12 @@ def get_audit(
         # 404 deliberately — never 403 — so cross-tenant probes can't confirm
         # whether a decision_id exists in another tenant.
         raise HTTPException(status_code=404, detail="Decision not found")
+    asker = db.get(User, row.user_id) if row.user_id else None
     return AuditDetail(
         **_summary(row).model_dump(),
+        asked_by=asker.email if asker else None,
+        prev_hash=row.prev_hash,
+        row_hash=row.row_hash,
         final_answer=row.final_answer,
         retrieved_chunks=[
             RetrievedChunkOut(
@@ -138,4 +236,5 @@ def _summary(row: Decision) -> AuditSummary:
         grounding_score=row.grounding_score,
         determinism_score=row.determinism_score,
         latency_ms=row.latency_ms,
+        llm_model=row.llm_model,
     )

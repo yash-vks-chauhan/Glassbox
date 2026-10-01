@@ -81,8 +81,10 @@ app.add_middleware(
         "X-Tenant-Slug",
     ],
     expose_headers=[
+        "Content-Disposition",
         "Retry-After",
         "X-Request-ID",
+        "X-Total-Count",
         "X-RateLimit-Limit",
         "X-RateLimit-Remaining",
     ],

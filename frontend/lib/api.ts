@@ -101,6 +101,11 @@ export type AuditDetail = {
   grounding_score: number | null;
   determinism_score: number | null;
   latency_ms: number;
+  llm_model: string | null;
+  /** Email of the user who asked; null for system-run decisions. */
+  asked_by: string | null;
+  prev_hash: string | null;
+  row_hash: string | null;
   retrieved_chunks: Array<{
     source_id: string;
     source_type: string;
@@ -125,7 +130,15 @@ export type AuditDetail = {
 
 export type AuditSummary = Omit<
   AuditDetail,
-  "final_answer" | "retrieved_chunks" | "decision_claims" | "reviews" | "corrections" | "active_escalation"
+  | "final_answer"
+  | "retrieved_chunks"
+  | "decision_claims"
+  | "reviews"
+  | "corrections"
+  | "active_escalation"
+  | "asked_by"
+  | "prev_hash"
+  | "row_hash"
 >;
 
 export type ReviewAssessment = "correct" | "needs_signoff" | "incorrect" | "insufficient_evidence";
@@ -411,6 +424,18 @@ export async function request<T>(
   path: string,
   init?: RequestInit & RequestOptions,
 ): Promise<T> {
+  const response = await send(path, init);
+  // 204 / empty body — return undefined cast to T so callers don't need to
+  // special-case void endpoints.
+  if (response.status === 204) return undefined as unknown as T;
+  return (await response.json()) as T;
+}
+
+/**
+ * Authenticated fetch with the single-refresh retry and error mapping
+ * shared by every API call. Returns the successful Response unread.
+ */
+async function send(path: string, init?: RequestInit & RequestOptions): Promise<Response> {
   const { skipAuthRefresh, ...fetchInit } = init ?? {};
   const url = `${getApiBase()}${path}`;
   const doFetch = (token: string | null) =>
@@ -443,11 +468,23 @@ export async function request<T>(
     const detail = await readErrorDetail(response);
     throw new ApiError(response.status, detail, errorMessage(detail));
   }
+  return response;
+}
 
-  // 204 / empty body — return undefined cast to T so callers don't need to
-  // special-case void endpoints.
-  if (response.status === 204) return undefined as unknown as T;
-  return (await response.json()) as T;
+/** Fetch a file through the authenticated API and hand it to the browser. */
+export async function downloadFile(path: string, fallbackName: string): Promise<string> {
+  const response = await send(path);
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? fallbackName;
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  return filename;
 }
 
 // ---------------------------------------------------------------------------
@@ -723,6 +760,40 @@ export function getMetricsTimeseries(days = 14) {
 
 export function getAuditSummaries(limit = 20) {
   return request<AuditSummary[]>(`/audit?limit=${limit}`);
+}
+
+export type AuditQuery = {
+  outcome?: "answered" | "flagged" | "refused" | "fallback";
+  client_id?: string;
+  /** ISO timestamp, inclusive */
+  since?: string;
+  /** ISO timestamp, exclusive */
+  until?: string;
+  grounding?: "low";
+  q?: string;
+};
+
+function auditQueryString(query: AuditQuery, extra: Record<string, string | number> = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries({ ...query, ...extra })) {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  }
+  return params.toString();
+}
+
+/** One page of the filtered audit log plus the total number of matches. */
+export async function searchAudit(query: AuditQuery, page: { limit: number; offset: number }) {
+  const response = await send(`/audit?${auditQueryString(query, page)}`);
+  const rows = (await response.json()) as AuditSummary[];
+  const total = Number(response.headers.get("x-total-count") ?? rows.length);
+  return { rows, total };
+}
+
+export function downloadAuditExport(format: "csv" | "pdf", query: AuditQuery) {
+  return downloadFile(
+    `/audit/export?${auditQueryString(query, { format })}`,
+    `glassbox-audit.${format}`,
+  );
 }
 
 export function getAudit(id: string) {

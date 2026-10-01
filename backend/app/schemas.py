@@ -248,6 +248,7 @@ class AuditSummary(BaseModel):
     grounding_score: float | None
     determinism_score: float | None
     latency_ms: int
+    llm_model: str | None = None
 
 
 ReviewAssessment = Literal["correct", "needs_signoff", "incorrect", "insufficient_evidence"]
@@ -321,6 +322,9 @@ class EscalationBrief(BaseModel):
 
 
 class AuditDetail(AuditSummary):
+    asked_by: str | None = None
+    prev_hash: str | None = None
+    row_hash: str | None = None
     final_answer: str | None
     retrieved_chunks: list[RetrievedChunkOut]
     decision_claims: list[ClaimOut]
