@@ -24,11 +24,11 @@ const TIERS: Tier[] = [
     cta: { href: "/contact", label: "Start a pilot" },
     features: [
       { label: "Up to 3 advisors, 1 reviewer", included: true },
-      { label: "10,000 grounded answers / month", included: true },
+      { label: "Cited answers, threads, and refusals", included: true },
       { label: "Audit log + CSV export", included: true },
       { label: "PDF audit-binder export", included: false },
-      { label: "Custom model + BYO inference", included: false },
-      { label: "SSO + role-based access", included: false },
+      { label: "Hosted model routes (bring your own key)", included: false },
+      { label: "Role-based access + MFA", included: true },
     ],
   },
   {
@@ -40,11 +40,11 @@ const TIERS: Tier[] = [
     cta: { href: "/contact", label: "Talk to sales" },
     features: [
       { label: "Unlimited advisors, up to 5 reviewers", included: true },
-      { label: "Unlimited grounded answers", included: true },
+      { label: "Review queue with SLAs and four-eyes sign-off", included: true },
       { label: "Audit log + CSV export", included: true },
       { label: "PDF audit-binder export", included: true },
-      { label: "Reviewer outcomes train grounding scorer", included: true },
-      { label: "SSO + role-based access", included: false },
+      { label: "Reviewer verdicts train the grounding scorer", included: true },
+      { label: "Role-based access + MFA", included: true },
     ],
   },
   {
@@ -54,12 +54,12 @@ const TIERS: Tier[] = [
     cadence: "annual contract",
     cta: { href: "/contact", label: "Contact us" },
     features: [
-      { label: "Multi-tenant: desks, regions, jurisdictions", included: true },
-      { label: "Air-gapped deploy on your AWS / Azure", included: true },
-      { label: "Custom model + BYO inference", included: true },
-      { label: "SSO + role-based access", included: true },
-      { label: "EU AI Act Art. 12 evidence pack", included: true },
-      { label: "24×5 named support", included: true },
+      { label: "Separate workspaces per desk or region", included: true },
+      { label: "Self-hosted: Docker + Postgres in your cloud", included: true },
+      { label: "Hosted or self-hosted models behind the eval gate", included: true },
+      { label: "Role-based access + MFA", included: true },
+      { label: "Record-keeping evidence: hash-chained log + PDF binder", included: true },
+      { label: "Tamper check on the full audit chain", included: true },
     ],
   },
 ];
@@ -150,15 +150,15 @@ function FaqStrip() {
   const faqs = [
     {
       q: "Do you charge per token or per answer?",
-      a: "No. Pricing is per advisor / reviewer seat. The model behind it is yours to pick.",
+      a: "No. Pricing is per seat. The default local evidence engine makes no paid model calls at all.",
     },
     {
       q: "Can we bring our own model?",
-      a: "Yes. BYO OpenRouter key on Pilot and Desk; full custom inference (Bedrock, Vertex, self-hosted) on Firm.",
+      a: "Yes. Admins can add an OpenRouter key, or point GlassBox at a self-hosted Ollama or vLLM model. A route is only used in production after it passes the built-in evaluation gate.",
     },
     {
       q: "Where does our data live?",
-      a: "Pilot and Desk run on our EU AWS region with strict isolation. Firm deploys into your cloud — we never see your data.",
+      a: "Wherever you deploy it. GlassBox runs as two containers plus Postgres, and in local evidence mode no question or document leaves your infrastructure.",
     },
     {
       q: "What if the regulator asks for a specific decision?",
@@ -178,8 +178,8 @@ function FaqStrip() {
           Have a question we didn't answer?
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
-          Pricing for regulated firms always needs context. Reach out and we'll send you a quote
-          alongside the security questionnaire.
+          Pricing for regulated firms always needs context. Tell us about your team and we'll
+          reply with a quote.
         </p>
         <Link href="/contact" className="mt-3 inline-flex items-center gap-1.5 text-sm text-primary">
           Open contact form →
