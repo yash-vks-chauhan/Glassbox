@@ -285,10 +285,12 @@ def authenticate(
                     user_id=user.id, tenant_id=user.tenant_id
                 )
             )
-        secret, _ = mfa_mod.unpack_secret(user.mfa_secret)
+        secret, _ = mfa_mod.unpack_secret(user.mfa_secret, user_id=user.id)
         if not (secret and mfa_mod.verify_code(secret, mfa_code)):
             # Try recovery code path before giving up.
-            ok, new_blob = mfa_mod.consume_recovery_code(user.mfa_secret, mfa_code)
+            ok, new_blob = mfa_mod.consume_recovery_code(
+                user.mfa_secret, mfa_code, user_id=user.id
+            )
             if not ok:
                 user.failed_login_count += 1
                 db.flush()
@@ -342,9 +344,11 @@ def authenticate_mfa_challenge(
         _log_security_event(db, kind="login_locked", user=user, ip=ip, user_agent=user_agent)
         raise AccountLocked()
 
-    secret, _ = mfa_mod.unpack_secret(user.mfa_secret)
+    secret, _ = mfa_mod.unpack_secret(user.mfa_secret, user_id=user.id)
     if not (secret and mfa_mod.verify_code(secret, mfa_code)):
-        ok, new_blob = mfa_mod.consume_recovery_code(user.mfa_secret, mfa_code)
+        ok, new_blob = mfa_mod.consume_recovery_code(
+            user.mfa_secret, mfa_code, user_id=user.id
+        )
         if not ok:
             user.failed_login_count += 1
             if user.failed_login_count >= get_settings().login_max_failed_attempts:
@@ -658,7 +662,7 @@ def accept_invitation(
     # frontend can walk them through QR + code entry on the next step.
     if row.role in MFA_REQUIRED_ROLES:
         secret = mfa_mod.generate_secret()
-        user.mfa_secret = mfa_mod.pack_secret(secret, [])  # recovery codes generated on completion
+        user.mfa_secret = mfa_mod.pack_secret(secret, [], user_id=user.id)  # recovery codes generated on completion
         user.mfa_enrolled = False
         db.flush()
         return AcceptInvitationResult(
@@ -762,7 +766,7 @@ def begin_bootstrap(
         email_verified=True,
     )
     secret = mfa_mod.generate_secret()
-    user.mfa_secret = mfa_mod.pack_secret(secret, [])  # no recovery yet
+    user.mfa_secret = mfa_mod.pack_secret(secret, [], user_id=user.id)  # no recovery yet
     user.mfa_enrolled = False  # explicit; flipped by complete_bootstrap
     db.flush()
     _log_security_event(
@@ -802,7 +806,7 @@ def complete_bootstrap(
     if user.mfa_enrolled:
         raise InvalidToken()
 
-    secret, _ = mfa_mod.unpack_secret(user.mfa_secret)
+    secret, _ = mfa_mod.unpack_secret(user.mfa_secret, user_id=user.id)
     if not (secret and mfa_mod.verify_code(secret, mfa_code)):
         _log_security_event(
             db, kind="bootstrap_mfa_failed", user=user, ip=ip, user_agent=user_agent
@@ -811,7 +815,7 @@ def complete_bootstrap(
 
     recovery_plain = mfa_mod.generate_recovery_codes()
     recovery_hashes = [mfa_mod.hash_recovery_code(c) for c in recovery_plain]
-    user.mfa_secret = mfa_mod.pack_secret(secret, recovery_hashes)
+    user.mfa_secret = mfa_mod.pack_secret(secret, recovery_hashes, user_id=user.id)
     user.mfa_enrolled = True
     user.last_login_at = datetime.now(timezone.utc)
 
@@ -847,7 +851,7 @@ def begin_mfa_enrollment(db: Session, *, user: User) -> mfa_mod.EnrollmentChalle
     secret = mfa_mod.generate_secret()
     # Stash the secret without recovery codes yet; mfa_enrolled stays False
     # until the user proves they can produce a code.
-    user.mfa_secret = mfa_mod.pack_secret(secret, [])
+    user.mfa_secret = mfa_mod.pack_secret(secret, [], user_id=user.id)
     db.flush()
     return mfa_mod.EnrollmentChallenge(
         secret=secret,
@@ -858,12 +862,12 @@ def begin_mfa_enrollment(db: Session, *, user: User) -> mfa_mod.EnrollmentChalle
 def complete_mfa_enrollment(
     db: Session, *, user: User, code: str
 ) -> list[str]:
-    secret, _ = mfa_mod.unpack_secret(user.mfa_secret)
+    secret, _ = mfa_mod.unpack_secret(user.mfa_secret, user_id=user.id)
     if not (secret and mfa_mod.verify_code(secret, code)):
         raise InvalidCredentials()
     recovery_plain = mfa_mod.generate_recovery_codes()
     recovery_hashes = [mfa_mod.hash_recovery_code(c) for c in recovery_plain]
-    user.mfa_secret = mfa_mod.pack_secret(secret, recovery_hashes)
+    user.mfa_secret = mfa_mod.pack_secret(secret, recovery_hashes, user_id=user.id)
     user.mfa_enrolled = True
     _log_security_event(db, kind="mfa_enrolled", user=user, ip=None, user_agent=None)
     return recovery_plain

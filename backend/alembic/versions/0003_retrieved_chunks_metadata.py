@@ -12,6 +12,8 @@ Create Date: 2026-05-23
 from alembic import op
 import sqlalchemy as sa
 
+from app.core.migration_utils import add_columns_if_missing
+
 
 revision = "0003_retrieved_chunks_metadata"
 down_revision = "0002_add_tenancy_and_auth"
@@ -20,11 +22,15 @@ depends_on = None
 
 
 def upgrade() -> None:
-    with op.batch_alter_table("retrieved_chunks") as batch:
-        batch.add_column(sa.Column("file", sa.String(length=512), nullable=True))
-        batch.add_column(sa.Column("chunk_index", sa.Integer(), nullable=True))
-        batch.add_column(sa.Column("source_version", sa.String(length=64), nullable=True))
-        batch.add_column(sa.Column("selected_reason", sa.String(length=255), nullable=True))
+    add_columns_if_missing(
+        "retrieved_chunks",
+        [
+            sa.Column("file", sa.String(length=512), nullable=True),
+            sa.Column("chunk_index", sa.Integer(), nullable=True),
+            sa.Column("source_version", sa.String(length=64), nullable=True),
+            sa.Column("selected_reason", sa.String(length=255), nullable=True),
+        ],
+    )
 
 
 def downgrade() -> None:

@@ -8,6 +8,8 @@ Create Date: 2026-05-23
 from alembic import op
 import sqlalchemy as sa
 
+from app.core.migration_utils import add_columns_if_missing
+
 
 revision = "0004_model_eval_metadata"
 down_revision = "0003_retrieved_chunks_metadata"
@@ -16,87 +18,34 @@ depends_on = None
 
 
 def upgrade() -> None:
-    with op.batch_alter_table("model_eval_runs") as batch:
-        batch.add_column(sa.Column("p50_latency_ms", sa.Integer(), nullable=True))
-        batch.add_column(sa.Column("p95_latency_ms", sa.Integer(), nullable=True))
-        batch.add_column(
-            sa.Column(
-                "answerability_accuracy",
-                sa.Float(),
-                nullable=False,
-                server_default="0.0",
-            )
-        )
-        batch.add_column(
-            sa.Column(
-                "refusal_correctness",
-                sa.Float(),
-                nullable=False,
-                server_default="0.0",
-            )
-        )
-        batch.add_column(
-            sa.Column(
-                "numeric_compliance_accuracy",
-                sa.Float(),
-                nullable=False,
-                server_default="0.0",
-            )
-        )
-        batch.add_column(
-            sa.Column(
-                "prompt_injection_resistance",
-                sa.Float(),
-                nullable=False,
-                server_default="0.0",
-            )
-        )
-        batch.add_column(
-            sa.Column(
-                "failure_buckets_json",
-                sa.Text(),
-                nullable=False,
-                server_default="{}",
-            )
-        )
-        batch.add_column(
-            sa.Column("eval_gate", sa.String(length=16), nullable=False, server_default="fast")
-        )
+    add_columns_if_missing(
+        "model_eval_runs",
+        [
+            sa.Column("p50_latency_ms", sa.Integer(), nullable=True),
+            sa.Column("p95_latency_ms", sa.Integer(), nullable=True),
+            sa.Column("answerability_accuracy", sa.Float(), nullable=False, server_default="0.0"),
+            sa.Column("refusal_correctness", sa.Float(), nullable=False, server_default="0.0"),
+            sa.Column("numeric_compliance_accuracy", sa.Float(), nullable=False, server_default="0.0"),
+            sa.Column("prompt_injection_resistance", sa.Float(), nullable=False, server_default="0.0"),
+            sa.Column("failure_buckets_json", sa.Text(), nullable=False, server_default="{}"),
+            sa.Column("eval_gate", sa.String(length=16), nullable=False, server_default="fast"),
+        ],
+    )
 
-    with op.batch_alter_table("model_eval_results") as batch:
-        batch.add_column(
-            sa.Column("answerability_score", sa.Float(), nullable=False, server_default="0.0")
-        )
-        batch.add_column(
-            sa.Column("refusal_score", sa.Float(), nullable=False, server_default="0.0")
-        )
-        batch.add_column(
-            sa.Column(
-                "numeric_compliance_score",
-                sa.Float(),
-                nullable=False,
-                server_default="0.0",
-            )
-        )
-        batch.add_column(
-            sa.Column(
-                "prompt_injection_score",
-                sa.Float(),
-                nullable=False,
-                server_default="0.0",
-            )
-        )
-        batch.add_column(
-            sa.Column("banned_terms_json", sa.Text(), nullable=False, server_default="[]")
-        )
-        batch.add_column(
-            sa.Column("failure_bucket", sa.String(length=64), nullable=False, server_default="other")
-        )
-        batch.add_column(sa.Column("gold_answer", sa.Text(), nullable=True))
-        batch.add_column(sa.Column("reason", sa.Text(), nullable=True))
-        batch.add_column(
-            sa.Column("adversarial", sa.Boolean(), nullable=False, server_default=sa.text("0"))
-        )
+    add_columns_if_missing(
+        "model_eval_results",
+        [
+            sa.Column("answerability_score", sa.Float(), nullable=False, server_default="0.0"),
+            sa.Column("refusal_score", sa.Float(), nullable=False, server_default="0.0"),
+            sa.Column("numeric_compliance_score", sa.Float(), nullable=False, server_default="0.0"),
+            sa.Column("prompt_injection_score", sa.Float(), nullable=False, server_default="0.0"),
+            sa.Column("banned_terms_json", sa.Text(), nullable=False, server_default="[]"),
+            sa.Column("failure_bucket", sa.String(length=64), nullable=False, server_default="other"),
+            sa.Column("gold_answer", sa.Text(), nullable=True),
+            sa.Column("reason", sa.Text(), nullable=True),
+            sa.Column("adversarial", sa.Boolean(), nullable=False, server_default=sa.false()),
+        ],
+    )
 
 
 def downgrade() -> None:

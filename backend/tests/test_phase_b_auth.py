@@ -21,7 +21,6 @@ cleans up the users / tokens it creates.
 from __future__ import annotations
 
 import os
-import sqlite3
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -88,62 +87,6 @@ def _reset_state(monkeypatch, tmp_path):
     _wipe_rate_limit_buckets()
     reset_email_service_cache()
     get_settings.cache_clear()
-    _wipe_test_users()
-
-
-def _wipe_test_users() -> None:
-    """Delete any users/tokens/invitations our tests created so re-runs are
-    deterministic. We key on a prefix so we never touch real data."""
-    raw = sqlite3.connect(engine.url.database)
-    try:
-        # Find user ids whose email starts with "test+" — that's our convention.
-        user_ids = [
-            r[0]
-            for r in raw.execute(
-                "SELECT id FROM users WHERE email LIKE 'test+%'"
-            )
-        ]
-        if user_ids:
-            placeholders = ",".join("?" * len(user_ids))
-            raw.execute(
-                f"DELETE FROM refresh_tokens WHERE user_id IN ({placeholders})",
-                user_ids,
-            )
-            raw.execute(
-                f"DELETE FROM password_resets WHERE user_id IN ({placeholders})",
-                user_ids,
-            )
-            raw.execute(
-                f"DELETE FROM security_events WHERE user_id IN ({placeholders})",
-                user_ids,
-            )
-            raw.execute(
-                f"DELETE FROM users WHERE id IN ({placeholders})", user_ids
-            )
-        raw.execute("DELETE FROM user_invitations WHERE email LIKE 'test+%'")
-        # Bootstrap tests create throw-away tenants prefixed `bs-`; tear them
-        # down so the next test's "no owner exists" precondition holds.
-        tenant_ids = [
-            r[0]
-            for r in raw.execute("SELECT id FROM tenants WHERE slug LIKE 'bs-%'")
-        ]
-        for tid in tenant_ids:
-            raw.execute(
-                "DELETE FROM refresh_tokens WHERE user_id IN "
-                "(SELECT id FROM users WHERE tenant_id = ?)",
-                (tid,),
-            )
-            raw.execute(
-                "DELETE FROM security_events WHERE user_id IN "
-                "(SELECT id FROM users WHERE tenant_id = ?)",
-                (tid,),
-            )
-            raw.execute("DELETE FROM security_events WHERE tenant_id = ?", (tid,))
-            raw.execute("DELETE FROM users WHERE tenant_id = ?", (tid,))
-            raw.execute("DELETE FROM tenants WHERE id = ?", (tid,))
-        raw.commit()
-    finally:
-        raw.close()
 
 
 @pytest.fixture()
@@ -172,7 +115,7 @@ def _make_user(
         )
         if mfa_enrolled:
             secret = mfa_secret or mfa_mod.generate_secret()
-            user.mfa_secret = mfa_mod.pack_secret(secret, [])
+            user.mfa_secret = mfa_mod.pack_secret(secret, [], user_id=user.id)
             user.mfa_enrolled = True
         db.commit()
         db.refresh(user)
@@ -546,7 +489,7 @@ def test_recovery_code_consumes_once(client):
     # Enroll and grab recovery codes through the service layer.
     with SessionLocal() as db:
         u = db.get(User, user.id)
-        u.mfa_secret = mfa_mod.pack_secret(secret, [])
+        u.mfa_secret = mfa_mod.pack_secret(secret, [], user_id=u.id)
         db.flush()
         recovery_plain = auth_service.complete_mfa_enrollment(
             db, user=u, code=pyotp.TOTP(secret).now()

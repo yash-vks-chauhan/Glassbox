@@ -34,6 +34,7 @@ def upsert_user(*, email: str, role: str, mfa_enrolled: bool = False) -> None:
                 email_verified=True,
             )
             db.add(user)
+            db.flush()  # assigns user.id, which the MFA ciphertext is bound to
         else:
             user.password_hash = hash_password(PASSWORD)
             user.role = role
@@ -42,7 +43,7 @@ def upsert_user(*, email: str, role: str, mfa_enrolled: bool = False) -> None:
             user.failed_login_count = 0
         if mfa_enrolled:
             user.mfa_enrolled = True
-            user.mfa_secret = mfa.pack_secret(ADMIN_MFA_SECRET, [])
+            user.mfa_secret = mfa.pack_secret(ADMIN_MFA_SECRET, [], user_id=user.id)
         else:
             user.mfa_enrolled = False
             user.mfa_secret = None

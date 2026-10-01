@@ -152,7 +152,6 @@ def determinism_run(
     user_id: str | None = None,
 ):
     from app.core.orchestrator import run_ask
-    from app.models_db import Decision
 
     settings = get_settings()
     run_count = runs or settings.determinism_runs
@@ -172,9 +171,6 @@ def determinism_run(
     ]
     score = determinism_score_from_answers([response.answer for response in responses])
     representative_id = responses[0].decision_id if responses else None
-    if representative_id:
-        row = db.get(Decision, representative_id)
-        if row:
-            row.determinism_score = score
-            db.commit()
+    # Decisions are hash-chained, so the score is never written back onto an
+    # existing row; doing so would make /audit/verify report tampering.
     return score, representative_id, responses

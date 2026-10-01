@@ -192,6 +192,12 @@ class Settings(BaseSettings):
         alias="APP_ENCRYPTION_KEY",
     )
     app_encryption_kid: str = Field(default="dev1", alias="APP_ENCRYPTION_KID")
+    # Retired keys that may still decrypt existing ciphertext after a
+    # rotation, as comma-separated "kid:key" pairs. New data always uses
+    # APP_ENCRYPTION_KEY.
+    app_encryption_previous_keys: str = Field(
+        default="", alias="APP_ENCRYPTION_PREVIOUS_KEYS"
+    )
     cookie_secret: str = Field(
         default="dev-insecure-cookie-secret-change-me", alias="COOKIE_SECRET"
     )

@@ -9,6 +9,13 @@ Create Date: 2026-05-23
 from alembic import op
 import sqlalchemy as sa
 
+from app.core.migration_utils import (
+    add_columns_if_missing,
+    create_index_if_missing,
+    has_table,
+    has_unique_constraint,
+)
+
 
 revision = "0005_phase_e_hardening"
 down_revision = "0004_model_eval_metadata"
@@ -25,49 +32,66 @@ _AUDIT_DELETE_TRIGGERS = {
 
 def upgrade() -> None:
     # 1. Hash chain columns on decisions.
-    with op.batch_alter_table("decisions") as batch:
-        batch.add_column(sa.Column("prev_hash", sa.String(length=64), nullable=True))
-        batch.add_column(sa.Column("row_hash", sa.String(length=64), nullable=True))
+    add_columns_if_missing(
+        "decisions",
+        [
+            sa.Column("prev_hash", sa.String(length=64), nullable=True),
+            sa.Column("row_hash", sa.String(length=64), nullable=True),
+        ],
+    )
 
     # 2. BYO key UX field.
-    with op.batch_alter_table("byo_keys") as batch:
-        batch.add_column(sa.Column("last4", sa.String(length=8), nullable=True))
+    add_columns_if_missing("byo_keys", [sa.Column("last4", sa.String(length=8), nullable=True)])
 
     # 3. Append-only correction log so we never mutate audit rows.
-    op.create_table(
-        "decision_corrections",
-        sa.Column("id", sa.String(length=36), primary_key=True),
-        sa.Column("tenant_id", sa.String(length=36), sa.ForeignKey("tenants.id"), nullable=False),
-        sa.Column("decision_id", sa.String(length=36), sa.ForeignKey("decisions.id"), nullable=False),
-        sa.Column("corrected_by_user_id", sa.String(length=36), sa.ForeignKey("users.id"), nullable=False),
-        sa.Column("corrected_outcome", sa.String(length=24), nullable=True),
-        sa.Column("note", sa.Text(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    if not has_table("decision_corrections"):
+        op.create_table(
+            "decision_corrections",
+            sa.Column("id", sa.String(length=36), primary_key=True),
+            sa.Column("tenant_id", sa.String(length=36), sa.ForeignKey("tenants.id"), nullable=False),
+            sa.Column(
+                "decision_id", sa.String(length=36), sa.ForeignKey("decisions.id"), nullable=False
+            ),
+            sa.Column(
+                "corrected_by_user_id",
+                sa.String(length=36),
+                sa.ForeignKey("users.id"),
+                nullable=False,
+            ),
+            sa.Column("corrected_outcome", sa.String(length=24), nullable=True),
+            sa.Column("note", sa.Text(), nullable=False),
+            sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        )
+    create_index_if_missing(
+        "ix_decision_corrections_tenant_id", "decision_corrections", ["tenant_id"]
     )
-    op.create_index("ix_decision_corrections_tenant_id", "decision_corrections", ["tenant_id"])
-    op.create_index("ix_decision_corrections_decision_id", "decision_corrections", ["decision_id"])
+    create_index_if_missing(
+        "ix_decision_corrections_decision_id", "decision_corrections", ["decision_id"]
+    )
 
     # 4. Rate-limit bucket store (sliding window keyed on (subject, route)).
-    op.create_table(
-        "rate_limit_buckets",
-        sa.Column("id", sa.String(length=36), primary_key=True),
-        sa.Column("subject", sa.String(length=128), nullable=False),
-        sa.Column("route_class", sa.String(length=32), nullable=False),
-        sa.Column("hits_json", sa.Text(), nullable=False, server_default="[]"),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.UniqueConstraint("subject", "route_class", name="uq_rate_limit_subject_route"),
-    )
-    op.create_index("ix_rate_limit_buckets_subject", "rate_limit_buckets", ["subject"])
+    if not has_table("rate_limit_buckets"):
+        op.create_table(
+            "rate_limit_buckets",
+            sa.Column("id", sa.String(length=36), primary_key=True),
+            sa.Column("subject", sa.String(length=128), nullable=False),
+            sa.Column("route_class", sa.String(length=32), nullable=False),
+            sa.Column("hits_json", sa.Text(), nullable=False, server_default="[]"),
+            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+            sa.UniqueConstraint("subject", "route_class", name="uq_rate_limit_subject_route"),
+        )
+    create_index_if_missing("ix_rate_limit_buckets_subject", "rate_limit_buckets", ["subject"])
 
     # 5. Per-(user_id, provider) unique constraint for byo_keys.
-    with op.batch_alter_table("byo_keys") as batch:
-        batch.create_unique_constraint(
-            "uq_byo_keys_user_provider", ["user_id", "provider"]
-        )
+    if not has_unique_constraint("byo_keys", "uq_byo_keys_user_provider"):
+        with op.batch_alter_table("byo_keys") as batch:
+            batch.create_unique_constraint(
+                "uq_byo_keys_user_provider", ["user_id", "provider"]
+            )
 
-    # 6. SQLite DELETE-guards on the audit tables. Postgres targets get
-    #    equivalent triggers from a separate migration; we keep the SQL
-    #    inline here because alembic doesn't have a portable RAISE primitive.
+    # 6. SQLite DELETE-guards on the audit tables. Postgres gets equivalent
+    #    triggers in 0007_postgres_audit_guards; the SQL differs per dialect
+    #    because alembic has no portable RAISE primitive.
     bind = op.get_bind()
     if bind.dialect.name == "sqlite":
         for table, trigger in _AUDIT_DELETE_TRIGGERS.items():

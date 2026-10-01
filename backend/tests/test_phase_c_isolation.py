@@ -15,7 +15,6 @@ path runs end-to-end.
 
 from __future__ import annotations
 
-import sqlite3
 from uuid import uuid4
 
 import pytest
@@ -97,65 +96,6 @@ def _make_client(*, tenant_id: str, code: str = "C901") -> None:
             )
         )
         db.commit()
-
-
-@pytest.fixture(autouse=True)
-def _cleanup_phasec_rows():
-    yield
-    raw = sqlite3.connect(engine.url.database)
-    try:
-        # Phase E audit DELETE guards block these cleanup deletes by design.
-        # Suspend them just for the test-fixture cleanup window.
-        from tests.conftest import (
-            _restore_audit_delete_guards,
-            _suspend_audit_delete_guards,
-        )
-        _suspend_audit_delete_guards(raw)
-        user_ids = [
-            r[0]
-            for r in raw.execute("SELECT id FROM users WHERE email LIKE 'test+phasec-%'")
-        ]
-        if user_ids:
-            ph = ",".join("?" * len(user_ids))
-            raw.execute(f"DELETE FROM refresh_tokens WHERE user_id IN ({ph})", user_ids)
-            raw.execute(f"DELETE FROM security_events WHERE user_id IN ({ph})", user_ids)
-            raw.execute(
-                f"DELETE FROM escalation_events WHERE escalation_id IN "
-                f"(SELECT id FROM escalations WHERE created_by_user_id IN ({ph}))",
-                user_ids,
-            )
-            raw.execute(f"DELETE FROM escalations WHERE created_by_user_id IN ({ph})", user_ids)
-            raw.execute(
-                f"DELETE FROM decision_claims WHERE decision_id IN "
-                f"(SELECT id FROM decisions WHERE user_id IN ({ph}))",
-                user_ids,
-            )
-            raw.execute(
-                f"DELETE FROM retrieved_chunks WHERE decision_id IN "
-                f"(SELECT id FROM decisions WHERE user_id IN ({ph}))",
-                user_ids,
-            )
-            raw.execute(f"DELETE FROM decisions WHERE user_id IN ({ph})", user_ids)
-            raw.execute(f"DELETE FROM users WHERE id IN ({ph})", user_ids)
-        # And the tenants we made.
-        tenant_ids = [
-            r[0]
-            for r in raw.execute(
-                "SELECT id FROM tenants WHERE slug LIKE 't-%' AND slug != 'demo'"
-            )
-        ]
-        for tid in tenant_ids:
-            raw.execute("DELETE FROM decision_claims WHERE tenant_id = ?", (tid,))
-            raw.execute("DELETE FROM escalation_events WHERE tenant_id = ?", (tid,))
-            raw.execute("DELETE FROM escalations WHERE tenant_id = ?", (tid,))
-            raw.execute("DELETE FROM retrieved_chunks WHERE tenant_id = ?", (tid,))
-            raw.execute("DELETE FROM decisions WHERE tenant_id = ?", (tid,))
-            raw.execute("DELETE FROM users WHERE tenant_id = ?", (tid,))
-            raw.execute("DELETE FROM clients WHERE tenant_id = ?", (tid,))
-            raw.execute("DELETE FROM tenants WHERE id = ?", (tid,))
-        raw.commit()
-    finally:
-        raw.close()
 
 
 # ---------------------------------------------------------------------------

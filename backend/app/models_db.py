@@ -73,7 +73,8 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(24), nullable=False, default="advisor")
     display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    mfa_secret: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Encrypted TOTP secret + recovery-code hashes; see app.core.auth.mfa.
+    mfa_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
     mfa_enrolled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     last_login_at: Mapped[datetime | None] = mapped_column(
@@ -380,12 +381,16 @@ class Escalation(Base):
         Index("ix_escalations_tenant_id", "tenant_id"),
         Index("ix_escalations_decision_id", "decision_id"),
         Index("ix_escalations_status", "status"),
+        # One *active* escalation per decision. The partial predicate has to
+        # be spelled per dialect, otherwise Postgres builds a plain unique
+        # index and a resolved escalation blocks every later one.
         Index(
             "uq_escalations_active_decision",
             "tenant_id",
             "decision_id",
             unique=True,
             sqlite_where=text("status IN ('open', 'in_review')"),
+            postgresql_where=text("status IN ('open', 'in_review')"),
         ),
     )
 

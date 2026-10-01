@@ -134,7 +134,7 @@ def load_byo_key_for_user(
     if row is None:
         return None
     try:
-        return decrypt(row.encrypted_key, aad=_aad_for(user_id))
+        return decrypt(row.encrypted_key, aad=_aad_for(user_id), kid=row.key_kid)
     except EncryptionError:
         # Don't 500 the caller — let them fall through to the platform model.
         return None
