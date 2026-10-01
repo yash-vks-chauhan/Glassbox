@@ -121,6 +121,8 @@ PROTECTED_ENDPOINTS = [
     ("GET", "/models/approved", None),
     ("GET", "/llm/status", None),
     ("GET", "/admin/system", None),
+    ("GET", "/library", None),
+    ("GET", "/library/C001", None),
     ("GET", "/auth/me", None),
     ("POST", "/auth/invite", {"email": "a@b.com", "role": "advisor"}),
     ("POST", "/auth/mfa/enroll", None),

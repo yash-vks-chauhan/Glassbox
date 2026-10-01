@@ -22,6 +22,7 @@ from app.routers import (
     clients,
     determinism,
     escalations,
+    library,
     llm_status,
     metrics,
     models,
@@ -115,4 +116,5 @@ app.include_router(admin_users.router)
 app.include_router(admin_system.router)
 app.include_router(public.router)
 app.include_router(reviews.router)
+app.include_router(library.router)
 app.include_router(admin_users.self_router)

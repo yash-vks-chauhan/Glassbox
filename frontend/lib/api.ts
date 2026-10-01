@@ -894,6 +894,34 @@ export function submitReview(decisionId: string, input: ReviewInput) {
   });
 }
 
+export type LibraryDocument = {
+  source_id: string;
+  source_type: "ips" | "portfolio" | "factsheet" | "regulation";
+  title: string;
+  /** True for documents every tenant can cite (regulations, factsheets). */
+  shared: boolean;
+  file: string;
+  version: string | null;
+  updated_on: string | null;
+  size_bytes: number;
+  /** Chunks of this document in the retrieval index. */
+  indexed_passages: number;
+};
+
+export type LibraryDocumentDetail = LibraryDocument & {
+  metadata: Record<string, unknown>;
+  body: string;
+  cited_in_decisions: number;
+};
+
+export function listLibrary() {
+  return request<LibraryDocument[]>("/library");
+}
+
+export function getLibraryDocument(sourceId: string) {
+  return request<LibraryDocumentDetail>(`/library/${encodeURIComponent(sourceId)}`);
+}
+
 export function getLlmStatus() {
   return request<LlmStatus>("/llm/status");
 }

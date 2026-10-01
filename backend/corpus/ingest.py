@@ -149,15 +149,17 @@ def _resolved_source_id(path: Path, metadata: dict[str, object], source_type: st
     return assert_safe_source_id(candidate)
 
 
-def build_chunks() -> list[dict[str, object]]:
-    corpus_dir = BACKEND_DIR / "corpus"
-    # Shared content: regulations + factsheets.
+CORPUS_DIR = BACKEND_DIR / "corpus"
+
+
+def corpus_files() -> list[Path]:
+    """Every corpus file that ingestion indexes: shared regulations and
+    factsheets, then each tenant's IPS documents and portfolio snapshots."""
     shared_files = sorted(
-        list((corpus_dir / "shared" / "regulations").glob("*.md"))
-        + list((corpus_dir / "shared" / "factsheets").glob("*.md"))
+        list((CORPUS_DIR / "shared" / "regulations").glob("*.md"))
+        + list((CORPUS_DIR / "shared" / "factsheets").glob("*.md"))
     )
-    # Tenant content: every tenant directory contributes its own IPS files.
-    tenant_root = corpus_dir / "tenants"
+    tenant_root = CORPUS_DIR / "tenants"
     tenant_files: list[Path] = []
     if tenant_root.is_dir():
         for tenant_dir in sorted(tenant_root.iterdir()):
@@ -173,9 +175,22 @@ def build_chunks() -> list[dict[str, object]]:
             portfolio_dir = tenant_dir / "portfolio"
             if portfolio_dir.is_dir():
                 tenant_files.extend(sorted(portfolio_dir.glob("*.md")))
+    return shared_files + tenant_files
 
+
+def classify_corpus_file(path: Path) -> tuple[str, str, str]:
+    """Public alias of the layout rule: (source_type, tenant_id, collection)."""
+    return _classify(path)
+
+
+def resolve_source_id(path: Path, metadata: dict[str, object], source_type: str) -> str:
+    """Public alias: the source id a corpus file is indexed (and cited) under."""
+    return _resolved_source_id(path, metadata, source_type)
+
+
+def build_chunks() -> list[dict[str, object]]:
     chunks: list[dict[str, object]] = []
-    for path in shared_files + tenant_files:
+    for path in corpus_files():
         metadata, body = parse_metadata(path.read_text(encoding="utf-8"))
         source_type, tenant_id, collection = _classify(path)
         if source_type == "unknown":

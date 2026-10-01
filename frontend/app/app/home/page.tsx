@@ -8,6 +8,7 @@ import {
   FileWarning,
   Inbox,
   ScanLine,
+  Sparkles,
 } from "lucide-react";
 
 import { PageContainer, PageHeader } from "@/components/PageContainer";
@@ -16,10 +17,13 @@ import {
   getAuditSummaries,
   getMetrics,
   listEscalations,
+  listLibrary,
   type AuditSummary,
   type Escalation,
+  type LibraryDocument,
   type MetricsSummary,
 } from "@/lib/api";
+import { KIND_LABEL, libraryHref } from "@/lib/library";
 import { hasAtLeastRole, useAuth } from "@/lib/auth-context";
 import { useClients } from "@/lib/clients-hooks";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -44,6 +48,7 @@ export default function HomePage() {
   const [audits, setAudits] = useState<AuditSummary[] | null>(null);
   const [escalations, setEscalations] = useState<Escalation[] | null>(null);
   const [metrics, setMetrics] = useState<MetricsSummary | null>(null);
+  const [documents, setDocuments] = useState<LibraryDocument[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [todayLabel, setTodayLabel] = useState("Today");
   const [greeting, setGreeting] = useState("Welcome");
@@ -62,6 +67,9 @@ export default function HomePage() {
     );
     setGreeting(greetingFor(now.getHours()));
     setNowMs(now.getTime());
+    listLibrary()
+      .then(setDocuments)
+      .catch(() => setDocuments([]));
 
     let active = true;
     async function load() {
@@ -104,6 +112,16 @@ export default function HomePage() {
       breached: active.filter((e) => new Date(e.sla_due_at).getTime() < nowMs).length,
     };
   }, [escalations, nowMs, user?.user_id]);
+
+  // Most recently updated approved documents (only those that carry a date).
+  const recentDocuments = useMemo(
+    () =>
+      (documents ?? [])
+        .filter((d) => d.updated_on)
+        .sort((a, b) => (a.updated_on! < b.updated_on! ? 1 : -1))
+        .slice(0, 4),
+    [documents],
+  );
 
   const firstName =
     user?.display_name?.trim().split(/\s+/)[0] || user?.email.split("@")[0] || "";
@@ -236,6 +254,30 @@ export default function HomePage() {
               </li>
             ))}
           </ul>
+
+          <div className="mt-6 rounded-lg border bg-card/60 p-4">
+            <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              <Sparkles className="h-3 w-3" /> Recently updated documents
+            </div>
+            {documents === null ? (
+              <Skeleton className="h-16 rounded-md" />
+            ) : recentDocuments.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No dated document updates yet.</p>
+            ) : (
+              <ul className="space-y-1.5 text-sm">
+                {recentDocuments.map((d) => (
+                  <li key={d.source_id} className="flex items-baseline justify-between gap-3">
+                    <Link href={libraryHref(d.source_id)} className="min-w-0 truncate hover:underline">
+                      {d.title}
+                    </Link>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {KIND_LABEL[d.source_type]} · {d.updated_on}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </section>
       </div>
 

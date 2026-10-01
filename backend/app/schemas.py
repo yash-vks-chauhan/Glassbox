@@ -654,3 +654,21 @@ class AccessRequestCreate(StrictModel):
 
 class AccessRequestReceived(BaseModel):
     status: str = "received"
+
+
+class LibraryDocumentOut(BaseModel):
+    source_id: str
+    source_type: str
+    title: str
+    shared: bool
+    file: str
+    version: str | None = None
+    updated_on: str | None = None
+    size_bytes: int
+    indexed_passages: int
+
+
+class LibraryDocumentDetail(LibraryDocumentOut):
+    metadata: dict[str, object]
+    body: str
+    cited_in_decisions: int
