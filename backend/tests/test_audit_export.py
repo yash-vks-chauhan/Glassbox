@@ -161,3 +161,15 @@ def test_pdf_binder_refuses_oversized_selections(client, advisor_decisions, monk
 
 def test_advisors_cannot_export(client):
     assert client.get("/audit/export", headers=_bearer(_user("advisor"))).status_code == 403
+
+
+def test_client_roster_counts_the_callers_decisions(client, advisor_decisions):
+    advisor, _, _ = advisor_decisions
+    roster = client.get("/clients", headers=_bearer(advisor)).json()
+    c001 = next(row for row in roster if row["client_code"] == "C001")
+    assert c001["decision_count"] == 3
+    assert c001["flagged_count"] == 1
+    assert c001["last_decision_at"]
+    # Advisors only count their own decisions; they asked nothing about C002.
+    c002 = next(row for row in roster if row["client_code"] == "C002")
+    assert c002["decision_count"] == 0 and c002["last_decision_at"] is None

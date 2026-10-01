@@ -7,6 +7,7 @@ from datetime import timedelta
 from sqlalchemy.orm import Session
 
 from app.models_db import Escalation, EscalationEvent, User
+from app.schemas import EscalationBrief
 
 
 ACTIVE_STATUSES = ("open", "in_review")
@@ -35,4 +36,16 @@ def append_event(
             to_status=to_status,
             note=note,
         )
+    )
+
+
+def escalation_brief(escalation: Escalation | None) -> EscalationBrief | None:
+    if escalation is None:
+        return None
+    return EscalationBrief(
+        id=escalation.id,
+        status=escalation.status,
+        priority=escalation.priority,
+        sla_due_at=escalation.sla_due_at.isoformat(),
+        assigned_to_user_id=escalation.assigned_to_user_id,
     )

@@ -16,10 +16,10 @@ from app.core.audit_export import (
     load_for_export,
 )
 from app.core.auth.deps import current_user, require_role
+from app.core.escalations import escalation_brief
 from app.core.reviews import (
     active_escalation,
     corrections_for_decision,
-    escalation_brief,
     reviews_for_decision,
 )
 from app.core.security.audit_hash import verify_chain
@@ -194,6 +194,9 @@ def get_audit(
         asked_by=asker.email if asker else None,
         prev_hash=row.prev_hash,
         row_hash=row.row_hash,
+        thread_id=row.thread_id,
+        retrieval_question=row.retrieval_question,
+        refusal_reason=row.refusal_reason,
         final_answer=row.final_answer,
         retrieved_chunks=[
             RetrievedChunkOut(

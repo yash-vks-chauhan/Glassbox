@@ -37,7 +37,12 @@ def run_ask(
     enforce_production_gate: bool = True,
     tenant_id: str | None = None,
     user_id: str | None = None,
+    asked_question: str | None = None,
+    thread_id: str | None = None,
 ) -> AskResponse:
+    """Answer ``question``. In a thread, ``question`` is the context-resolved
+    question used for retrieval and reasoning, and ``asked_question`` is the
+    advisor's literal text; both are recorded."""
     from app.models_db import DEMO_TENANT_ID
 
     started = time.perf_counter()
@@ -62,10 +67,15 @@ def run_ask(
         llm_model: str | None = None,
     ) -> AskResponse:
         latency_ms = int((time.perf_counter() - started) * 1000)
+        shown_refusal = (
+            compose_refusal_reason(refusal_reason, question=question)
+            if outcome == "refused"
+            else refusal_reason
+        )
         decision_id = (
             record_decision(
                 db,
-                question=question,
+                question=asked_question or question,
                 client_id=client_id,
                 outcome=outcome,
                 final_answer=answer,
@@ -77,6 +87,9 @@ def run_ask(
                 tenant_id=effective_tenant,
                 user_id=user_id,
                 grounding_score=score,
+                thread_id=thread_id,
+                retrieval_question=question,
+                refusal_reason=shown_refusal,
             )
             if persist
             else str(uuid4())
@@ -86,7 +99,7 @@ def run_ask(
             outcome=outcome,
             answer=answer,
             citations=citations or _citations_from_claims(kept or []),
-                refusal_reason=compose_refusal_reason(refusal_reason, question=question) if outcome == "refused" else refusal_reason,
+            refusal_reason=shown_refusal,
             trust=Trust(
                 grounding_score=score,
                 determinism_score=None,
@@ -232,8 +245,13 @@ def run_ask_events(
     enforce_production_gate: bool = True,
     tenant_id: str | None = None,
     user_id: str | None = None,
+    asked_question: str | None = None,
+    thread_id: str | None = None,
 ) -> Iterator[dict]:
+    """Streaming twin of ``run_ask``; same ``asked_question``/``thread_id``
+    contract."""
     yield {"event": "accepted", "data": {"question": question, "client_id": client_id}}
+    context = {"asked_question": asked_question, "thread_id": thread_id}
     from app.models_db import DEMO_TENANT_ID
 
     effective_tenant = tenant_id or DEMO_TENANT_ID
@@ -268,6 +286,7 @@ def run_ask_events(
     refuse, reason = should_refuse(question, retrieved)
     if refuse:
         response = _persist_stream_response(
+            **context,
             db=db,
             persist=persist,
             question=question,
@@ -288,6 +307,7 @@ def run_ask_events(
     answerability = assess_answerability(question, client_id, retrieved)
     if not answerability.answerable:
         response = _persist_stream_response(
+            **context,
             db=db,
             persist=persist,
             question=question,
@@ -318,6 +338,7 @@ def run_ask_events(
         refuse, reason = refusal_after_verification(len(decision_claims))
         if refuse:
             response = _persist_stream_response(
+                **context,
                 db=db,
                 persist=persist,
                 question=question,
@@ -348,6 +369,7 @@ def run_ask_events(
             return
         score = grounding_score(decision_claims)
         response = _persist_stream_response(
+            **context,
             db=db,
             persist=persist,
             question=question,
@@ -392,6 +414,7 @@ def run_ask_events(
         claims = parse_claims(draft, retrieved)
         if not claims:
             response = _persist_stream_response(
+                **context,
                 db=db,
                 persist=persist,
                 question=question,
@@ -430,6 +453,7 @@ def run_ask_events(
             return
         answer, refusal_reason, citations, score = fallback_answer(question, client_id, retrieved)
         response = _persist_stream_response(
+            **context,
             db=db,
             persist=persist,
             question=question,
@@ -460,6 +484,7 @@ def run_ask_events(
     refuse, reason = refusal_after_verification(len(decision_claims))
     if refuse:
         response = _persist_stream_response(
+            **context,
             db=db,
             persist=persist,
             question=question,
@@ -481,6 +506,7 @@ def run_ask_events(
 
     score = grounding_score(decision_claims)
     response = _persist_stream_response(
+        **context,
         db=db,
         persist=persist,
         question=question,
@@ -520,6 +546,8 @@ def _persist_stream_response(
     trust: Trust | None = None,
     tenant_id: str | None = None,
     user_id: str | None = None,
+    asked_question: str | None = None,
+    thread_id: str | None = None,
 ) -> AskResponse:
     from app.models_db import DEMO_TENANT_ID
 
@@ -527,7 +555,10 @@ def _persist_stream_response(
     decision_id = (
         record_decision(
             db,
-            question=question,
+            question=asked_question or question,
+            thread_id=thread_id,
+            retrieval_question=question,
+            refusal_reason=refusal_reason,
             client_id=client_id,
             outcome=outcome,
             final_answer=answer,

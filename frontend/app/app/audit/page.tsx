@@ -102,6 +102,9 @@ function AuditLog() {
   const [exporting, setExporting] = useState<"csv" | "pdf" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState(filters.q);
+  // The last q this page wrote to the URL; any other change came from outside
+  // (e.g. the global search) and should replace what's in the box.
+  const pushedQuery = useRef(filters.q);
   // The query used for the rows on screen, so "Load more" and exports
   // match them even though "since" is relative to the moment of loading.
   const activeQuery = useRef<AuditQuery>(toQuery(filters));
@@ -115,6 +118,7 @@ function AuditLog() {
       if (next.client !== "all") params.set("client", next.client);
       if (next.lowGrounding) params.set("grounding", "low");
       if (next.q.trim()) params.set("q", next.q.trim());
+      pushedQuery.current = next.q.trim();
       const qs = params.toString();
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     },
@@ -140,6 +144,13 @@ function AuditLog() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (filters.q !== pushedQuery.current) {
+      pushedQuery.current = filters.q;
+      setSearch(filters.q);
+    }
+  }, [filters.q]);
 
   // Debounce the search box into the URL.
   useEffect(() => {

@@ -1,7 +1,7 @@
 from collections.abc import Generator
 from datetime import datetime, timezone
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, event, select
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -23,6 +23,19 @@ engine = create_engine(
     future=True,
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+
+
+if engine.dialect.name == "sqlite":
+
+    @event.listens_for(engine, "connect")
+    def _sqlite_pragmas(dbapi_connection, _connection_record) -> None:
+        # WAL lets reads run alongside the single writer, and the busy timeout
+        # makes a second writer wait instead of failing with "database is
+        # locked" (e.g. a CLI script while the server is busy).
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=10000")
+        cursor.close()
 
 
 def is_sqlite() -> bool:
@@ -277,9 +290,15 @@ def _sync_sqlite_schema() -> None:
             "BOOLEAN NOT NULL DEFAULT 0",
         )
         # --- Phase E columns ---------------------------------------------------
+        _add_column_if_missing(conn, inspector, "decisions", "thread_id", "VARCHAR(36)")
+        _add_column_if_missing(conn, inspector, "decisions", "retrieval_question", "TEXT")
+        _add_column_if_missing(conn, inspector, "decisions", "refusal_reason", "TEXT")
         _add_column_if_missing(conn, inspector, "decisions", "prev_hash", "VARCHAR(64)")
         _add_column_if_missing(conn, inspector, "decisions", "row_hash", "VARCHAR(64)")
         _add_column_if_missing(conn, inspector, "byo_keys", "last4", "VARCHAR(8)")
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_decisions_thread_id ON decisions (thread_id)")
+        )
         if "escalations" in inspector.get_table_names():
             conn.execute(
                 text(

@@ -46,6 +46,9 @@ export type AskResponse = {
   citations: Citation[];
   refusal_reason: string | null;
   trust: Trust;
+  thread_id: string | null;
+  /** Set when a follow-up was answered as a context-resolved question. */
+  retrieval_question: string | null;
 };
 
 export type AskRuntimeStatus = {
@@ -106,6 +109,10 @@ export type AuditDetail = {
   asked_by: string | null;
   prev_hash: string | null;
   row_hash: string | null;
+  thread_id: string | null;
+  /** The context-resolved question a follow-up was answered with. */
+  retrieval_question: string | null;
+  refusal_reason: string | null;
   retrieved_chunks: Array<{
     source_id: string;
     source_type: string;
@@ -139,6 +146,9 @@ export type AuditSummary = Omit<
   | "asked_by"
   | "prev_hash"
   | "row_hash"
+  | "thread_id"
+  | "retrieval_question"
+  | "refusal_reason"
 >;
 
 export type ReviewAssessment = "correct" | "needs_signoff" | "incorrect" | "insufficient_evidence";
@@ -645,12 +655,14 @@ export function inviteUser(email: string, role: "owner" | "admin" | "compliance"
 export function ask(input: {
   question: string;
   client_id?: string | null;
+  thread_id?: string | null;
 }) {
   return request<AskResponse>("/ask", {
     method: "POST",
     body: JSON.stringify({
       question: input.question,
       client_id: input.client_id ?? null,
+      thread_id: input.thread_id ?? null,
     }),
   });
 }
@@ -676,6 +688,8 @@ export async function askStream(
   input: {
     question: string;
     client_id?: string | null;
+    /** Continue this thread; omit to start a new one. */
+    thread_id?: string | null;
   },
   onEvent: (event: AskStreamEvent) => void,
 ): Promise<AskResponse> {
@@ -690,6 +704,7 @@ export async function askStream(
       body: JSON.stringify({
         question: input.question,
         client_id: input.client_id ?? null,
+        thread_id: input.thread_id ?? null,
       }),
     });
 
@@ -709,7 +724,8 @@ export async function askStream(
     throw new RateLimitedError(Number.isFinite(retry) ? retry : 1, await readErrorDetail(response));
   }
   if (!response.ok || !response.body) {
-    throw new ApiError(response.status, await readErrorDetail(response));
+    const detail = await readErrorDetail(response);
+    throw new ApiError(response.status, detail, errorMessage(detail));
   }
   const decoder = new TextDecoder();
   const reader = response.body.getReader();
@@ -920,6 +936,50 @@ export function listLibrary() {
 
 export function getLibraryDocument(sourceId: string) {
   return request<LibraryDocumentDetail>(`/library/${encodeURIComponent(sourceId)}`);
+}
+
+export type ThreadStatus = "open" | "resolved" | "escalated";
+
+export type ThreadSummary = {
+  id: string;
+  client_id: string;
+  title: string;
+  status: ThreadStatus;
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+  last_question: string | null;
+  last_outcome: AskResponse["outcome"] | null;
+};
+
+/** One question and answer, shaped like an /ask response. */
+export type ThreadMessage = Omit<AskResponse, "thread_id"> & {
+  created_at: string;
+  question: string;
+  escalation: EscalationBrief | null;
+};
+
+export type ThreadDetail = ThreadSummary & { messages: ThreadMessage[] };
+
+export function listThreads(filters: { client_id?: string; status?: ThreadStatus; limit?: number } = {}) {
+  const params = new URLSearchParams();
+  if (filters.client_id) params.set("client_id", filters.client_id);
+  if (filters.status) params.set("status", filters.status);
+  if (filters.limit) params.set("limit", String(filters.limit));
+  const qs = params.toString();
+  return request<ThreadSummary[]>(qs ? `/threads?${qs}` : "/threads");
+}
+
+export function getThread(threadId: string) {
+  return request<ThreadDetail>(`/threads/${encodeURIComponent(threadId)}`);
+}
+
+export function updateThread(threadId: string, patch: { status?: "open" | "resolved"; title?: string }) {
+  return request<ThreadSummary>(`/threads/${encodeURIComponent(threadId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
 }
 
 export function getLlmStatus() {

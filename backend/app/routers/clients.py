@@ -17,12 +17,12 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.core.auth.deps import require_role
 from app.db import get_db
-from app.models_db import ClientRecord, User
+from app.models_db import ClientRecord, Decision, User
 from app.schemas import ClientCreateRequest, ClientOut
 
 
@@ -34,7 +34,34 @@ _WRITE_ROLES = ("advisor", "compliance", "admin", "owner")
 _DELETE_ROLES = ("admin", "owner")
 
 
-def _serialize(row: ClientRecord) -> ClientOut:
+_TENANT_WIDE_ROLES = frozenset({"compliance", "admin", "owner"})
+
+
+def _activity_by_client(db: Session, user: User) -> dict[str, tuple[int, int, datetime | None]]:
+    """(decisions, flagged, last decision) per client code in one query,
+    scoped like the audit log: advisors count only their own decisions."""
+    stmt = (
+        select(
+            Decision.client_id,
+            func.count(Decision.id),
+            func.sum(case((Decision.outcome == "flagged", 1), else_=0)),
+            func.max(Decision.created_at),
+        )
+        .where(Decision.tenant_id == user.tenant_id, Decision.client_id.is_not(None))
+        .group_by(Decision.client_id)
+    )
+    if user.role not in _TENANT_WIDE_ROLES:
+        stmt = stmt.where(Decision.user_id == user.id)
+    return {
+        client: (count, int(flagged or 0), last)
+        for client, count, flagged, last in db.execute(stmt)
+    }
+
+
+def _serialize(
+    row: ClientRecord, activity: tuple[int, int, datetime | None] | None = None
+) -> ClientOut:
+    decisions, flagged, last = activity or (0, 0, None)
     return ClientOut(
         id=row.id,
         client_code=row.client_code,
@@ -51,6 +78,9 @@ def _serialize(row: ClientRecord) -> ClientOut:
         aum_eur=row.aum_eur,
         advisor_name=row.advisor_name,
         created_at=row.created_at.isoformat(),
+        decision_count=decisions,
+        flagged_count=flagged,
+        last_decision_at=last.isoformat() if last else None,
     )
 
 
@@ -64,7 +94,8 @@ def list_clients(
         .where(ClientRecord.tenant_id == user.tenant_id)
         .order_by(ClientRecord.client_code.asc())
     ).all()
-    return [_serialize(row) for row in rows]
+    activity = _activity_by_client(db, user)
+    return [_serialize(row, activity.get(row.client_code)) for row in rows]
 
 
 @router.get("/{code}", response_model=ClientOut)

@@ -32,6 +32,9 @@ def record_decision(
     user_id: str | None = None,
     grounding_score: float | None = None,
     determinism_score: float | None = None,
+    thread_id: str | None = None,
+    retrieval_question: str | None = None,
+    refusal_reason: str | None = None,
 ) -> str:
     decision = Decision(
         tenant_id=tenant_id,
@@ -44,6 +47,10 @@ def record_decision(
         grounding_score=grounding_score,
         llm_model=llm_model,
         latency_ms=latency_ms,
+        thread_id=thread_id,
+        # Only stored when a follow-up was rewritten using thread context.
+        retrieval_question=retrieval_question if retrieval_question != question else None,
+        refusal_reason=refusal_reason,
     )
     db.add(decision)
     db.flush()

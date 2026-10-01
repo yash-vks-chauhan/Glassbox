@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.escalations import ACTIVE_STATUSES, ESCALATION_SLA, append_event
+from app.core.threads import refresh_thread_status
 from app.models_db import (
     ClaimLabel,
     Decision,
@@ -28,7 +29,6 @@ from app.models_db import (
 from app.schemas import (
     ClaimLabelOut,
     CorrectionOut,
-    EscalationBrief,
     ReviewCreateRequest,
     ReviewOut,
 )
@@ -113,6 +113,8 @@ def submit_review(
 
     escalation = _advance_escalation(db, decision, escalation, review, reviewer)
     review.escalation_id = escalation.id if escalation else None
+    db.flush()
+    refresh_thread_status(db, decision.thread_id)
     db.commit()
     db.refresh(review)
     return review
@@ -249,15 +251,3 @@ def corrections_for_decision(
         )
         for row in rows
     ]
-
-
-def escalation_brief(escalation: Escalation | None) -> EscalationBrief | None:
-    if escalation is None:
-        return None
-    return EscalationBrief(
-        id=escalation.id,
-        status=escalation.status,
-        priority=escalation.priority,
-        sla_due_at=_iso(escalation.sla_due_at),
-        assigned_to_user_id=escalation.assigned_to_user_id,
-    )

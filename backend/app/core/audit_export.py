@@ -157,7 +157,10 @@ CSV_COLUMNS = [
     "client_id",
     "outcome",
     "question",
+    "retrieval_question",
     "final_answer",
+    "refusal_reason",
+    "thread_id",
     "grounding_score",
     "latency_ms",
     "model_route",
@@ -201,7 +204,10 @@ def export_csv(db: Session, decisions: list[Decision]) -> str:
                     d.client_id or "",
                     d.outcome,
                     d.question,
+                    d.retrieval_question or "",
                     d.final_answer or "",
+                    d.refusal_reason or "",
+                    d.thread_id or "",
                     "" if d.grounding_score is None else f"{d.grounding_score:.3f}",
                     d.latency_ms,
                     d.llm_model,
@@ -348,8 +354,12 @@ def export_pdf(
         pdf.rule()
         pdf.heading("Question", size=10)
         pdf.paragraph(d.question)
+        if d.retrieval_question:
+            pdf.paragraph(f"Follow-up answered as: {d.retrieval_question}")
+        if d.thread_id:
+            pdf.paragraph(f"Thread {d.thread_id}")
         pdf.heading("Answer / refusal", size=10)
-        pdf.paragraph(d.final_answer or "(no answer text recorded)")
+        pdf.paragraph(d.final_answer or d.refusal_reason or "(no answer text recorded)")
 
         pdf.heading("Claims", size=10)
         if not d.claims:

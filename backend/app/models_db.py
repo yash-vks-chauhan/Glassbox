@@ -257,12 +257,42 @@ class ClientRecord(Base):
 # ---------------------------------------------------------------------------
 
 
+class Thread(Base):
+    """A conversation about one client. Each question asked in it is a
+    decision carrying ``thread_id``."""
+
+    __tablename__ = "threads"
+    __table_args__ = (
+        Index("ix_threads_tenant_id", "tenant_id"),
+        Index("ix_threads_client_id", "client_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False
+    )
+    client_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by_user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id"), nullable=False
+    )
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    # open | resolved | escalated
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+
 class Decision(Base):
     __tablename__ = "decisions"
     __table_args__ = (
         Index("ix_decisions_tenant_id", "tenant_id"),
         Index("ix_decisions_user_id", "user_id"),
         Index("ix_decisions_created_at", "created_at"),
+        Index("ix_decisions_thread_id", "thread_id"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
@@ -289,6 +319,14 @@ class Decision(Base):
     # legacy rows until the chain is backfilled.
     prev_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     row_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Conversation context, hashed when set (see OPTIONAL_HASHED_DECISION_FIELDS):
+    # the thread this question belongs to, the context-resolved question that
+    # retrieval actually used for a follow-up, and the refusal text shown.
+    thread_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("threads.id"), nullable=True
+    )
+    retrieval_question: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refusal_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     claims: Mapped[list["DecisionClaim"]] = relationship(
         back_populates="decision", cascade="all, delete-orphan"

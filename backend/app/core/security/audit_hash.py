@@ -56,6 +56,13 @@ HASHED_DECISION_FIELDS = (
     "llm_model",
     "latency_ms",
 )
+# Added after the chain went live. They join the hash only when set, so a
+# row written before they existed keeps exactly the hash it was given.
+OPTIONAL_HASHED_DECISION_FIELDS = (
+    "thread_id",
+    "retrieval_question",
+    "refusal_reason",
+)
 HASHED_CLAIM_FIELDS = (
     "id",
     "decision_id",
@@ -101,8 +108,13 @@ def canonical_decision_payload(
     """Serialise the *content* of a decision (plus its claims and retrieved
     chunks) into a canonical JSON string. Sort everything we can so the
     output is deterministic regardless of row insert order."""
+    decision_fields = canonical_dict(decision, HASHED_DECISION_FIELDS)
+    for name in OPTIONAL_HASHED_DECISION_FIELDS:
+        value = getattr(decision, name, None)
+        if value is not None:
+            decision_fields[name] = _scalar(value)
     payload = {
-        "decision": canonical_dict(decision, HASHED_DECISION_FIELDS),
+        "decision": decision_fields,
         "claims": sorted(
             (canonical_dict(c, HASHED_CLAIM_FIELDS) for c in (claims or [])),
             key=lambda d: d["id"],

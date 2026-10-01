@@ -28,6 +28,7 @@ from app.routers import (
     models,
     public,
     reviews,
+    threads,
 )
 
 
@@ -117,4 +118,5 @@ app.include_router(admin_system.router)
 app.include_router(public.router)
 app.include_router(reviews.router)
 app.include_router(library.router)
+app.include_router(threads.router)
 app.include_router(admin_users.self_router)

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.auth.deps import current_user, require_role
 from app.core.escalations import ACTIVE_STATUSES, ESCALATION_SLA, append_event
+from app.core.threads import refresh_thread_status
 from app.db import get_db
 from app.models_db import Decision, Escalation, User, utcnow
 from app.schemas import (
@@ -121,6 +122,7 @@ def create_escalation(
         to_status="open",
         note=request.note,
     )
+    refresh_thread_status(db, decision.thread_id)
     db.commit()
     db.refresh(escalation)
     return _out(escalation)
@@ -184,6 +186,8 @@ def update_escalation(
             to_status=row.status,
             note=request.note,
         )
+        db.flush()
+        refresh_thread_status(db, row.decision.thread_id if row.decision else None)
         db.commit()
         db.refresh(row)
     return _out(row)

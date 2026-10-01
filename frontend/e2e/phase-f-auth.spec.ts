@@ -1,52 +1,15 @@
-import { execFileSync } from "node:child_process";
-import path from "node:path";
+import { expect, test } from "@playwright/test";
 
-import { expect, test, type Page } from "@playwright/test";
-
-type Seed = {
-  tenant_slug: string;
-  password: string;
-  advisor_email: string;
-  admin_email: string;
-  admin_mfa_secret: string;
-};
-
-const repoRoot = path.resolve(__dirname, "../..");
-const backendDir = path.join(repoRoot, "backend");
-const python = process.env.PYTHON ?? path.join(repoRoot, ".venv/bin/python");
+import {
+  currentTotp,
+  fillPrimaryLogin as fillLogin,
+  resetRateLimitBuckets,
+  seedUsers,
+  submitQuestion,
+  type Seed,
+} from "./helpers";
 
 let seed: Seed;
-
-function runPython(args: string[]) {
-  return execFileSync(python, args, {
-    cwd: backendDir,
-    env: { ...process.env, PYTHONPATH: "." },
-    encoding: "utf8",
-  }).trim();
-}
-
-function currentTotp(secret: string) {
-  return runPython([
-    "-c",
-    "import pyotp, sys; print(pyotp.TOTP(sys.argv[1]).now())",
-    secret,
-  ]);
-}
-
-function resetRateLimitBuckets() {
-  runPython([
-    "-c",
-    [
-      "from sqlalchemy import delete",
-      "from app.db import SessionLocal",
-      "from app.models_db import RateLimitBucket",
-      "db = SessionLocal()",
-      "db.execute(delete(RateLimitBucket))",
-      "db.commit()",
-      "db.close()",
-    ].join("; "),
-  ]);
-}
 
 function sseFinal(payload: unknown) {
   return [
@@ -56,21 +19,12 @@ function sseFinal(payload: unknown) {
   ].join("\n\n");
 }
 
-async function fillPrimaryLogin(page: Page, email: string) {
-  await page.getByLabel("Workspace").fill(seed.tenant_slug);
-  await page.getByLabel("Work email").fill(email);
-  await page.getByLabel("Password").fill(seed.password);
-  await page.getByRole("button", { name: /Continue to workbench/i }).click();
-}
-
-async function submitQuestion(page: Page, question: string) {
-  const composer = page.getByLabel("Conversation composer");
-  await composer.fill(question);
-  await composer.press("Enter");
+function fillPrimaryLogin(page: Parameters<typeof fillLogin>[0], email: string) {
+  return fillLogin(page, seed, email);
 }
 
 test.beforeAll(() => {
-  seed = JSON.parse(runPython(["scripts/seed_phase_f_e2e.py"])) as Seed;
+  seed = seedUsers();
 });
 
 test.beforeEach(async ({ context }) => {

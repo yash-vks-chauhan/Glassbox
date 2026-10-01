@@ -191,6 +191,8 @@ class AskRequest(StrictModel):
 
     question: str = Field(min_length=3, max_length=4_000)
     client_id: SafeSourceId = None
+    # Continue an existing thread; omitted, the question starts a new one.
+    thread_id: str | None = Field(default=None, pattern=r"^[0-9a-fA-F-]{36}$")
 
 
 class Citation(BaseModel):
@@ -218,6 +220,9 @@ class AskResponse(BaseModel):
     citations: list[Citation] = []
     refusal_reason: str | None = None
     trust: Trust = Trust()
+    thread_id: str | None = None
+    # Set when a follow-up was answered as a context-resolved question.
+    retrieval_question: str | None = None
 
 
 class RetrievedChunkOut(BaseModel):
@@ -325,6 +330,9 @@ class AuditDetail(AuditSummary):
     asked_by: str | None = None
     prev_hash: str | None = None
     row_hash: str | None = None
+    thread_id: str | None = None
+    retrieval_question: str | None = None
+    refusal_reason: str | None = None
     final_answer: str | None
     retrieved_chunks: list[RetrievedChunkOut]
     decision_claims: list[ClaimOut]
@@ -476,6 +484,10 @@ class ClientOut(BaseModel):
     aum_eur: float | None = None
     advisor_name: str | None = None
     created_at: str
+    # Activity the caller can see (advisors: their own decisions).
+    decision_count: int = 0
+    flagged_count: int = 0
+    last_decision_at: str | None = None
 
 
 class ClientCreateRequest(StrictModel):
@@ -672,3 +684,41 @@ class LibraryDocumentDetail(LibraryDocumentOut):
     metadata: dict[str, object]
     body: str
     cited_in_decisions: int
+
+
+class ThreadOut(BaseModel):
+    id: str
+    client_id: str
+    title: str
+    status: str
+    created_by_user_id: str
+    created_at: str
+    updated_at: str
+    message_count: int
+    last_question: str | None = None
+    last_outcome: str | None = None
+
+
+class ThreadMessage(BaseModel):
+    """One question and its answer, shaped like the /ask response so a
+    reloaded thread renders exactly like a live one."""
+
+    decision_id: str
+    created_at: str
+    question: str
+    retrieval_question: str | None = None
+    outcome: str
+    answer: str | None = None
+    refusal_reason: str | None = None
+    citations: list[Citation] = []
+    trust: Trust = Trust()
+    escalation: EscalationBrief | None = None
+
+
+class ThreadDetail(ThreadOut):
+    messages: list[ThreadMessage]
+
+
+class ThreadUpdateRequest(StrictModel):
+    status: Literal["open", "resolved"] | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=200)

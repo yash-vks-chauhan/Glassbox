@@ -98,12 +98,26 @@ function AuditReplay({
             Decision replay
           </div>
           <h1 className="font-serif text-2xl font-semibold tracking-tight">{audit.question}</h1>
+          {audit.retrieval_question ? (
+            <p className="text-sm text-muted-foreground">
+              Follow-up answered as:{" "}
+              <span className="text-foreground/85">{audit.retrieval_question}</span>
+            </p>
+          ) : null}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <span>{new Date(audit.created_at).toLocaleString()}</span>
             <span>·</span>
             <span className="tabular">{audit.latency_ms}ms latency</span>
             <span>·</span>
             <span className="font-mono">{audit.id}</span>
+            {audit.thread_id ? (
+              <>
+                <span>·</span>
+                <Link href={`/app/threads/${audit.thread_id}`} className="hover:text-foreground">
+                  Open thread
+                </Link>
+              </>
+            ) : null}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -121,14 +135,16 @@ function AuditReplay({
         <div className="space-y-4">
           <section className="rounded-xl border bg-card">
             <header className="border-b px-4 py-2.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-              Final answer
+              {audit.final_answer ? "Final answer" : "Refusal shown to the advisor"}
             </header>
             <div className="p-4 text-[14px] leading-7">
-              {audit.final_answer ?? (
-                <span className="text-muted-foreground">
-                  Refused or escalated before answer generation.
-                </span>
-              )}
+              {audit.final_answer ??
+                audit.refusal_reason ?? (
+                  <span className="text-muted-foreground">
+                    Refused before answer generation. Decisions recorded before refusal texts were
+                    stored don&apos;t carry the message that was shown.
+                  </span>
+                )}
             </div>
           </section>
 

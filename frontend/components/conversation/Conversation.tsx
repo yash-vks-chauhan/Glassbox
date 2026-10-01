@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, RotateCcw, ScanSearch } from "lucide-react";
+import { ChevronLeft, ChevronRight, MessageSquarePlus, RotateCcw, ScanSearch } from "lucide-react";
 
 import {
   ApiError,
@@ -10,10 +10,15 @@ import {
   UnauthorizedError,
   askStream,
   createEscalation,
+  getThread,
+  listThreads,
+  updateThread,
   type AskResponse,
   type AskStreamEvent,
-  type Escalation,
+  type ThreadDetail,
+  type ThreadSummary,
 } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import { type ClientRecord } from "@/lib/clients";
 import { AssistantMessage } from "@/components/conversation/AssistantMessage";
 import { Composer } from "@/components/conversation/Composer";
@@ -26,6 +31,8 @@ type Message = {
   id: string;
   role: "user" | "assistant";
   text?: string;
+  /** For a follow-up: the standalone question it was answered as. */
+  interpretedAs?: string | null;
   result?: AskResponse;
   latencyMs?: number;
   groundingScore?: number | null;
@@ -33,13 +40,16 @@ type Message = {
   error?: string;
   errorTitle?: string;
   retryQuestion?: string;
-  escalation?: Escalation | null;
+  escalation?: { status: string } | null;
   escalating?: boolean;
   timestamp: string;
 };
 
 type Props = {
   client: ClientRecord;
+  /** The open thread, or null for a new conversation. */
+  threadId: string | null;
+  onThreadChange: (threadId: string | null) => void;
 };
 
 const SUGGESTIONS = [
@@ -78,8 +88,52 @@ function injectCitationTokens(text: string, count: number): string {
   return `${text} ${tokens}`;
 }
 
-export function Conversation({ client }: Props) {
+function assistantMessage(result: AskResponse, timestamp: string, latencyMs?: number): Message {
+  const citations = decorateCitations(result);
+  return {
+    id: result.decision_id,
+    role: "assistant",
+    result: {
+      ...result,
+      answer: result.answer ? injectCitationTokens(result.answer, citations.length) : null,
+    },
+    latencyMs: latencyMs ?? result.trust.total_ms ?? undefined,
+    groundingScore: result.trust.grounding_score,
+    citations,
+    timestamp,
+  };
+}
+
+function messagesFromThread(thread: ThreadDetail): Message[] {
+  return thread.messages.flatMap((m) => [
+    {
+      id: `u-${m.decision_id}`,
+      role: "user" as const,
+      text: m.question,
+      interpretedAs: m.retrieval_question,
+      timestamp: m.created_at,
+    },
+    {
+      ...assistantMessage({ ...m, thread_id: thread.id }, m.created_at),
+      escalation: m.escalation,
+    },
+  ]);
+}
+
+function initials(name: string | null | undefined, email: string | undefined) {
+  const source = name?.trim() || email?.split("@")[0] || "";
+  const parts = source.split(/[\s._-]+/).filter(Boolean);
+  return (parts.length > 1 ? parts[0][0] + parts[1][0] : source.slice(0, 2)).toUpperCase() || "?";
+}
+
+export function Conversation({ client, threadId, onThreadChange }: Props) {
+  const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
+  const [threads, setThreads] = useState<ThreadSummary[] | null>(null);
+  const [loadingThread, setLoadingThread] = useState(false);
+  // Set when this component itself started a thread, so switching the URL to
+  // it doesn't reload messages that are already on screen.
+  const startedThreadRef = useRef<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [streamStatus, setStreamStatus] = useState<string | null>(null);
   const [focusedSourceId, setFocusedSourceId] = useState<string | null>(null);
@@ -89,6 +143,46 @@ export function Conversation({ client }: Props) {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages.length, loading]);
+
+  const refreshThreads = useCallback(async () => {
+    try {
+      setThreads(await listThreads({ client_id: client.id }));
+    } catch {
+      setThreads([]);
+    }
+  }, [client.id]);
+
+  useEffect(() => {
+    void refreshThreads();
+  }, [refreshThreads]);
+
+  useEffect(() => {
+    if (threadId === null) {
+      setMessages([]);
+      return;
+    }
+    if (startedThreadRef.current === threadId) return;
+    let active = true;
+    setLoadingThread(true);
+    getThread(threadId)
+      .then((thread) => {
+        if (!active) return;
+        setMessages(messagesFromThread(thread));
+      })
+      .catch((err) => {
+        if (!active) return;
+        toast.error("Could not open thread", {
+          description: err instanceof Error ? err.message : undefined,
+        });
+        onThreadChange(null);
+      })
+      .finally(() => active && setLoadingThread(false));
+    return () => {
+      active = false;
+    };
+  }, [threadId, onThreadChange]);
+
+  const activeThread = threads?.find((t) => t.id === threadId) ?? null;
 
   const lastAssistant = useMemo(
     () => [...messages].reverse().find((m) => m.role === "assistant"),
@@ -109,27 +203,21 @@ export function Conversation({ client }: Props) {
     const t0 = performance.now();
     try {
       const result = await askStream(
-        { question: text, client_id: client.id },
+        { question: text, client_id: client.id, thread_id: threadId },
         (event) => setStreamStatus(statusForEvent(event)),
       );
       const latencyMs = result.trust.total_ms ?? Math.round(performance.now() - t0);
-      const decorated = decorateCitations(result);
-      const answerWithTokens = result.answer
-        ? injectCitationTokens(result.answer, decorated.length)
-        : null;
-      const enriched: AskResponse = { ...result, answer: answerWithTokens };
       setMessages((m) => [
-        ...m,
-        {
-          id: result.decision_id,
-          role: "assistant",
-          result: enriched,
-          latencyMs,
-          groundingScore: result.trust.grounding_score,
-          citations: decorated,
-          timestamp: new Date().toISOString(),
-        },
+        ...m.map((item) =>
+          item.id === userMsg.id ? { ...item, interpretedAs: result.retrieval_question } : item,
+        ),
+        assistantMessage(result, new Date().toISOString(), latencyMs),
       ]);
+      if (!threadId && result.thread_id) {
+        startedThreadRef.current = result.thread_id;
+        onThreadChange(result.thread_id);
+      }
+      void refreshThreads();
       toast.success(`Decision ${result.outcome}`, {
         description: `Logged as ${result.decision_id.slice(0, 8)}.`,
       });
@@ -175,6 +263,7 @@ export function Conversation({ client }: Props) {
         note: result.refusal_reason ?? result.answer ?? null,
       });
       updateMessage(result.decision_id, { escalation, escalating: false });
+      void refreshThreads();
       toast.success("Escalation opened", {
         description: `Compliance owns it now · SLA ${new Date(escalation.sla_due_at).toLocaleTimeString([], {
           hour: "2-digit",
@@ -189,22 +278,74 @@ export function Conversation({ client }: Props) {
     }
   }
 
+  async function handleResolveThread() {
+    if (!threadId) return;
+    try {
+      await updateThread(threadId, { status: "resolved" });
+      toast.success("Thread marked resolved", {
+        description: "Asking a new question here reopens it.",
+      });
+      void refreshThreads();
+    } catch (err) {
+      toast.error("Could not resolve thread", {
+        description: err instanceof Error ? err.message : undefined,
+      });
+    }
+  }
+
+  function startNewThread() {
+    startedThreadRef.current = null;
+    onThreadChange(null);
+  }
+
   return (
     <div className="flex h-[calc(100vh-9.5rem)] w-full">
       {/* Threads rail */}
       <aside className="hidden w-56 shrink-0 flex-col border-r border-border/60 bg-sidebar/40 xl:flex">
-        <div className="flex items-center justify-between border-b border-border/60 px-3 py-2.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+        <div className="flex items-center justify-between border-b border-border/60 px-3 py-2 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
           Threads
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 px-2 text-[11px] normal-case tracking-normal"
+            onClick={startNewThread}
+          >
+            <MessageSquarePlus className="h-3.5 w-3.5" />
+            New
+          </Button>
         </div>
-        <ul className="flex-1 overflow-auto p-1.5 text-sm">
-          <li>
-            <button className="w-full rounded-md bg-accent/60 px-2.5 py-1.5 text-left">
-              <div className="text-[13px] font-medium">Current conversation</div>
-              <div className="text-[11px] text-muted-foreground">
-                {messages.length === 0 ? "No messages" : `${messages.length} messages`}
-              </div>
-            </button>
-          </li>
+        <ul className="flex-1 space-y-0.5 overflow-auto p-1.5 text-sm">
+          {threadId === null ? (
+            <li className="rounded-md bg-accent/60 px-2.5 py-1.5">
+              <div className="text-[13px] font-medium">New conversation</div>
+              <div className="text-[11px] text-muted-foreground">Starts when you ask</div>
+            </li>
+          ) : null}
+          {threads === null ? (
+            <li className="px-2.5 py-1.5 text-[11px] text-muted-foreground">Loading…</li>
+          ) : threads.length === 0 && threadId === null ? null : (
+            threads.map((t) => (
+              <li key={t.id}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    startedThreadRef.current = null;
+                    onThreadChange(t.id);
+                  }}
+                  className={cn(
+                    "w-full rounded-md px-2.5 py-1.5 text-left transition-colors",
+                    t.id === threadId ? "bg-accent/60" : "hover:bg-accent/30",
+                  )}
+                >
+                  <div className="line-clamp-2 text-[13px] font-medium leading-5">{t.title}</div>
+                  <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <ThreadStatusDot status={t.status} />
+                    {t.status} · {t.message_count} question{t.message_count === 1 ? "" : "s"}
+                  </div>
+                </button>
+              </li>
+            ))
+          )}
         </ul>
       </aside>
 
@@ -215,7 +356,9 @@ export function Conversation({ client }: Props) {
           className="flex-1 overflow-y-auto px-5 py-5 lg:px-8"
         >
           <div className="mx-auto max-w-3xl space-y-4">
-            {messages.length === 0 ? (
+            {loadingThread ? (
+              <div className="text-center text-sm text-muted-foreground">Loading thread…</div>
+            ) : messages.length === 0 ? (
               <EmptyState clientName={client.displayName} />
             ) : null}
 
@@ -223,11 +366,19 @@ export function Conversation({ client }: Props) {
               if (m.role === "user") {
                 return (
                   <div key={m.id} className="flex items-start gap-3">
-                    <span className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded-md bg-secondary text-[10px] font-medium text-secondary-foreground">
-                      SK
+                    <span
+                      className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded-md bg-secondary text-[10px] font-medium text-secondary-foreground"
+                      title={user?.email}
+                    >
+                      {initials(user?.display_name, user?.email)}
                     </span>
                     <div className="flex-1 rounded-r-lg border border-l-[3px] border-l-primary/60 bg-background p-3 text-[14px] leading-7">
-                      {m.text}
+                      <p>{m.text}</p>
+                      {m.interpretedAs ? (
+                        <div className="mt-1 text-[12px] leading-5 text-muted-foreground">
+                          Answered as: <span className="text-foreground/80">{m.interpretedAs}</span>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 );
@@ -253,7 +404,8 @@ export function Conversation({ client }: Props) {
                     setPanelOpen(true);
                   }}
                   onEscalate={() => handleEscalate(m.result!)}
-                  onMarkResolved={() => toast.success("Marked resolved")}
+                  threadResolved={activeThread?.status === "resolved"}
+                  onMarkResolved={threadId ? handleResolveThread : undefined}
                 />
               );
             })}
@@ -265,9 +417,9 @@ export function Conversation({ client }: Props) {
         <div className="border-t bg-background/85 px-5 pb-5 pt-3 lg:px-8 backdrop-blur supports-[backdrop-filter]:bg-background/70">
           <div className="mx-auto max-w-3xl">
             <Composer
-              disabled={loading}
+              disabled={loading || loadingThread}
               onSubmit={handleSubmit}
-              suggestions={messages.length === 0 ? SUGGESTIONS : []}
+              suggestions={messages.length === 0 && !loadingThread ? SUGGESTIONS : []}
               placeholder={`Ask about ${client.displayName} (${client.id})…`}
             />
           </div>
@@ -303,6 +455,16 @@ export function Conversation({ client }: Props) {
       </div>
     </div>
   );
+}
+
+function ThreadStatusDot({ status }: { status: ThreadSummary["status"] }) {
+  const color =
+    status === "escalated"
+      ? "var(--state-flagged)"
+      : status === "resolved"
+        ? "var(--state-grounded)"
+        : "var(--muted-foreground)";
+  return <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: `hsl(${color})` }} />;
 }
 
 function InlineErrorMessage({

@@ -19,7 +19,8 @@ import {
 
 import { cn } from "@/lib/utils";
 import { hasAtLeastRole, useAuth, type AuthUser } from "@/lib/auth-context";
-import { getAskRuntimeStatus, type AskRuntimeStatus } from "@/lib/api";
+import { getAskRuntimeStatus, getMetrics, type AskRuntimeStatus } from "@/lib/api";
+import { targetsMet } from "@/lib/governance";
 
 type NavItem = {
   href: string;
@@ -207,16 +208,42 @@ export function SidebarBrand() {
   );
 }
 
+/** Governance targets met, for reviewers (advisors can't read metrics). */
 export function SidebarUtility() {
+  const { role } = useAuth();
+  const canSeeMetrics = hasAtLeastRole(role, "compliance");
+  const [summary, setSummary] = useState<{ ok: number; total: number } | null>(null);
+
+  useEffect(() => {
+    if (!canSeeMetrics) return;
+    let active = true;
+    const load = () =>
+      getMetrics()
+        .then((metrics) => active && setSummary(targetsMet(metrics)))
+        .catch(() => active && setSummary(null));
+    void load();
+    const timer = window.setInterval(load, 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [canSeeMetrics]);
+
+  if (!canSeeMetrics) return null;
   return (
     <div className="px-3 pb-3 pt-2">
-      <div className="flex items-center gap-2 rounded-md border bg-card/80 px-2.5 py-2">
+      <Link
+        href="/app/insights"
+        className="flex items-center gap-2 rounded-md border bg-card/80 px-2.5 py-2 hover:bg-accent/40"
+      >
         <Activity className="h-3.5 w-3.5 text-muted-foreground" />
         <div className="flex-1 text-xs leading-tight">
-          <div className="font-medium tabular">3 / 6</div>
-          <div className="text-[10px] text-muted-foreground">SLAs in range</div>
+          <div className="font-medium tabular">
+            {summary ? `${summary.ok} / ${summary.total}` : "—"}
+          </div>
+          <div className="text-[10px] text-muted-foreground">governance targets met</div>
         </div>
-      </div>
+      </Link>
     </div>
   );
 }

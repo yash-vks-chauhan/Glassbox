@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useMemo, useState } from "react";
+import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   AlertOctagon,
@@ -17,43 +17,61 @@ import { ButtonLink } from "@/components/ButtonLink";
 import { ClientContextBar } from "@/components/clients/ClientContextBar";
 import { OutcomeBadge } from "@/components/OutcomeBadge";
 import { ClientMissingState } from "@/components/clients/ClientMissingState";
-import { getAuditSummaries, type AuditSummary } from "@/lib/api";
+import {
+  listThreads,
+  searchAudit,
+  type AuditSummary,
+  type ThreadSummary,
+} from "@/lib/api";
 import { formatAUM } from "@/lib/clients";
 import { useClient } from "@/lib/clients-hooks";
-import { classify } from "@/lib/outcomes";
+import { threadHref } from "@/lib/threads";
 import { Skeleton } from "@/components/ui/skeleton";
+
+type Stats = { total: number; grounded: number; flagged: number; refused: number };
 
 export default function ClientDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { client, isHydrated } = useClient(id);
   const [audits, setAudits] = useState<AuditSummary[] | null>(null);
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [threads, setThreads] = useState<ThreadSummary[] | null>(null);
+  const clientCode = client?.id;
 
   useEffect(() => {
-    if (!client) {
+    if (!clientCode) {
       setAudits(null);
+      setStats(null);
+      setThreads(null);
       return;
     }
     let active = true;
-    getAuditSummaries(200)
-      .then((rows) => {
-        if (active) setAudits(rows.filter((r) => r.client_id === client.id));
+    // Counts come from the server so they cover the client's whole history,
+    // not just the most recent page of decisions.
+    const count = (outcome?: "answered" | "flagged" | "refused") =>
+      searchAudit({ client_id: clientCode, outcome }, { limit: 1, offset: 0 }).then((p) => p.total);
+    Promise.all([
+      searchAudit({ client_id: clientCode }, { limit: 10, offset: 0 }),
+      count("answered"),
+      count("flagged"),
+      count("refused"),
+      listThreads({ client_id: clientCode, limit: 20 }),
+    ])
+      .then(([recent, grounded, flagged, refused, clientThreads]) => {
+        if (!active) return;
+        setAudits(recent.rows);
+        setStats({ total: recent.total, grounded, flagged, refused });
+        setThreads(clientThreads);
       })
       .catch(() => {
-        if (active) setAudits([]);
+        if (!active) return;
+        setAudits([]);
+        setThreads([]);
       });
     return () => {
       active = false;
     };
-  }, [client?.id]);
-
-  const stats = useMemo(() => {
-    if (!audits) return null;
-    const total = audits.length;
-    const flagged = audits.filter((a) => classify(a) === "flagged").length;
-    const refused = audits.filter((a) => classify(a) === "refused").length;
-    const grounded = audits.filter((a) => classify(a) === "answered").length;
-    return { total, flagged, refused, grounded };
-  }, [audits]);
+  }, [clientCode]);
 
   if (!client) {
     if (!isHydrated) return <ClientLoadingState />;
@@ -81,13 +99,54 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
               <Kpi label="Refused" value={stats?.refused ?? "—"} tone="refused" />
             </div>
 
-            <section className="rounded-xl border bg-card">
+            <section id="threads" className="scroll-mt-24 rounded-xl border bg-card">
+              <div className="flex items-center justify-between border-b px-4 py-3">
+                <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  Threads
+                </h3>
+                <Link href="/app/threads" className="text-xs text-muted-foreground hover:text-foreground">
+                  All threads →
+                </Link>
+              </div>
+              {threads === null ? (
+                <div className="space-y-2 p-4">
+                  <Skeleton className="h-10 rounded-md" />
+                  <Skeleton className="h-10 rounded-md" />
+                </div>
+              ) : threads.length === 0 ? (
+                <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  No conversations about {client.id} yet.
+                </div>
+              ) : (
+                <ul className="divide-y divide-border/60">
+                  {threads.map((t) => (
+                    <li key={t.id}>
+                      <Link
+                        href={threadHref(t)}
+                        className="flex items-center gap-3 px-4 py-2.5 hover:bg-accent/30"
+                      >
+                        <span className="flex-1 truncate text-sm">{t.title}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {t.status} · {t.message_count} question{t.message_count === 1 ? "" : "s"}
+                        </span>
+                        <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            <section id="history" className="scroll-mt-24 rounded-xl border bg-card">
               <div className="flex items-center justify-between border-b px-4 py-3">
                 <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                   Recent decisions
                 </h3>
-                <Link href="/app/audit" className="text-xs text-muted-foreground hover:text-foreground">
-                  View audit log →
+                <Link
+                  href={`/app/audit?client=${encodeURIComponent(client.id)}&range=all`}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  View in audit log →
                 </Link>
               </div>
               {audits === null ? (
@@ -105,7 +164,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                 </div>
               ) : (
                 <ul className="divide-y divide-border/60">
-                  {audits.slice(0, 10).map((a) => (
+                  {audits.map((a) => (
                     <li key={a.id}>
                       <Link
                         href={`/app/audit/${a.id}`}
