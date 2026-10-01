@@ -48,6 +48,8 @@ def score_claim_support(claim: str, source: str) -> float:
     normalized_claim = _normalized_support_text(claim)
     if normalized_claim and normalized_claim in _normalized_support_text(source):
         return 0.98
+    if _exclusion_summary_supported(claim, source):
+        return 0.96
     features = _support_features(claim, source)
     cosine, overlap, numbers = features
     heuristic = float(max(0.0, min(1.0, 0.5 * cosine + 0.35 * overlap + 0.15 * numbers)))
@@ -64,6 +66,20 @@ def score_claim_support(claim: str, source: str) -> float:
         except Exception:
             pass
     return heuristic
+
+
+def _exclusion_summary_supported(claim: str, source: str) -> bool:
+    claim_lower = claim.lower()
+    source_lower = source.lower()
+    if not re.search(r"\b(exclusion|exclusions|exclude|excludes|restriction|restrictions)\b", claim_lower):
+        return False
+    if not re.search(r"\b(must not|excluded|exclude|excludes|prohibited|restriction|restrictions)\b", source_lower):
+        return False
+    restricted_terms = {"tobacco", "firearms", "gambling", "cryptocurrency", "russia"}
+    claim_terms = {term for term in restricted_terms if term in claim_lower}
+    if not claim_terms:
+        return False
+    return claim_terms.issubset({term for term in restricted_terms if term in source_lower})
 
 
 def _normalized_support_text(text: str) -> str:

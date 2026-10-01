@@ -101,6 +101,26 @@ class AcceptInviteRequest(StrictModel):
     display_name: str | None = None
 
 
+class AcceptInviteResponse(BaseModel):
+    """Response after accepting an invitation.
+
+    For non-MFA roles (advisor, compliance) only `status` and `user_id` are
+    set — the user just signs in normally next.
+
+    For MFA roles (admin, owner) the response also carries a staged TOTP
+    secret + a short-lived `mfa_setup_token`. The invitee must immediately
+    POST that token + a current authenticator code to `/auth/bootstrap/complete`
+    to flip MFA on and receive a session. Without that second step they
+    have a password but cannot log in (role gates them on enrolment)."""
+
+    status: str = "created"
+    user_id: str
+    requires_mfa_setup: bool = False
+    mfa_setup_token: str | None = None
+    mfa_secret: str | None = None
+    provisioning_uri: str | None = None
+
+
 class MFAEnrollResponse(BaseModel):
     secret: str
     provisioning_uri: str
@@ -121,6 +141,41 @@ class MeResponse(BaseModel):
     email: str
     role: str
     mfa_enrolled: bool
+
+
+# ---------------------------------------------------------------------------
+# First-admin bootstrap (resolves the chicken-and-egg: admin needs MFA to log
+# in, but MFA enrollment needs a session). Two-step: begin returns a TOTP
+# secret + short-lived token, complete verifies the code and mints a session.
+# ---------------------------------------------------------------------------
+
+
+class BootstrapBeginRequest(StrictModel):
+    setup_key: str = Field(min_length=10, max_length=256)
+    tenant_slug: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9][a-z0-9-]{0,63}$")
+    tenant_name: str | None = Field(default=None, max_length=255)
+    email: EmailStr
+    password: str = Field(min_length=12)
+    display_name: str | None = Field(default=None, max_length=255)
+
+
+class BootstrapBeginResponse(BaseModel):
+    bootstrap_token: str
+    mfa_secret: str
+    provisioning_uri: str
+    user_id: str
+
+
+class BootstrapCompleteRequest(StrictModel):
+    bootstrap_token: str = Field(min_length=10)
+    mfa_code: str = Field(min_length=4, max_length=12)
+
+
+class BootstrapCompleteResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    recovery_codes: list[str]
 
 
 class AskRequest(StrictModel):
@@ -355,6 +410,18 @@ class ModelHealth(BaseModel):
     blocked_reason: str | None = None
     latency_ms: int | None = None
     error: str | None = None
+    chat_usable: bool = False
+    smoke_latency_ms: int | None = None
+    smoke_error: str | None = None
+
+
+class AskRuntimeStatus(BaseModel):
+    mode: str
+    production_mode: bool
+    active_route: str | None = None
+    fallback_enabled: bool
+    status: str
+    message: str | None = None
 
 
 class ProductionModelRouteStatus(BaseModel):
@@ -366,6 +433,10 @@ class ProductionModelRouteStatus(BaseModel):
     production_eligible: bool
     blocked_reason: str | None = None
     approved_for_inference: bool
+    ready_for_inference: bool = False
+    chat_usable: bool = False
+    smoke_latency_ms: int | None = None
+    smoke_error: str | None = None
     approval: dict
     prompt_profile: dict
 
@@ -376,11 +447,15 @@ class ProductionModelStatus(BaseModel):
     active_route: str | None = None
     candidate_routes: list[str]
     approved_routes: list[str]
+    ready_routes: list[str] = []
+    active_route_health: dict | None = None
     required_eval_questions: int
     eval_freshness_hours: int
     require_recent_eval: bool
     approved_models_env: str
     blocked_reason: str | None = None
+    local_evidence_mode: bool = False
+    model_gate_required: bool = True
     routes: list[ProductionModelRouteStatus]
 
 

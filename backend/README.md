@@ -15,10 +15,14 @@ python -m app.ml.train_fallback
 uvicorn app.main:app --reload --port 8000
 ```
 
-The backend works without an OpenRouter key by using the deterministic local LLM path
-(`GLASSBOX_LOCAL_LLM=1`). Set `GLASSBOX_LOCAL_LLM=0` plus `OPENROUTER_API_KEY`
-to use the real hosted model, or leave local mode off without a key to exercise the
-offline fallback classifier.
+The backend works without an OpenRouter key through private local evidence mode
+(`GLASSBOX_LOCAL_EVIDENCE_MODE=1`). In that mode `/ask` uses retrieval,
+deterministic policy checks, claim verification, and audit replay instead of
+calling a paid hosted model.
+
+`GLASSBOX_LOCAL_LLM=1` remains available as the deterministic demo/fallback chat
+substitute. Set `GLASSBOX_LOCAL_EVIDENCE_MODE=0`, `GLASSBOX_LOCAL_LLM=0`, and
+`OPENROUTER_API_KEY` only when testing a real hosted model route.
 
 For product-mode model work, keep answers grounded: the model writes dynamic claims
 from retrieved IPS/factsheet/regulatory snippets, then unsupported claims are dropped.
@@ -57,12 +61,22 @@ Then run:
 python -m scripts.check_openrouter --chat
 ```
 
-## Run the model evaluation gate
+## Run the no-paid local evidence gate
+
+```bash
+PYTHONPATH=. python -m scripts.run_model_eval \
+  --routes local:glassbox-evidence-engine \
+  --gate full \
+  --determinism-runs 2 \
+  --no-persist
+```
+
+## Run a hosted model evaluation gate
 
 ```bash
 PYTHONPATH=. python -m scripts.run_model_eval \
   --routes ollama:qwen2.5-coder:1.5b \
-  --limit 164 \
+  --limit 183 \
   --determinism-runs 2 \
   --print-approved-env
 ```

@@ -31,6 +31,7 @@ from fastapi.testclient import TestClient
 from app.config import get_settings
 from app.core.auth import service as auth_service
 from app.core.auth import mfa as mfa_mod
+from app.core.auth.email import reset_email_service_cache
 from app.core.auth.tokens import (
     decode_access_token,
     hash_refresh_token,
@@ -67,6 +68,10 @@ def _reset_state(monkeypatch, tmp_path):
     # Keep the dev mail directory inside the pytest tmp so tests don't write
     # to /tmp across runs.
     monkeypatch.setenv("DEV_MAIL_DIR", str(tmp_path / "mail"))
+    monkeypatch.setenv("SMTP_HOST", "")
+    monkeypatch.setenv("SMTP_USERNAME", "")
+    monkeypatch.setenv("SMTP_PASSWORD", "")
+    monkeypatch.setenv("BOOTSTRAP_SETUP_KEY", "")
     monkeypatch.setenv("GLASSBOX_LOCAL_LLM", "1")
     monkeypatch.setenv("LOGIN_MAX_FAILED_ATTEMPTS", "5")
     monkeypatch.setenv("LOGIN_LOCKOUT_MINUTES", "15")
@@ -77,9 +82,11 @@ def _reset_state(monkeypatch, tmp_path):
     monkeypatch.setenv("RATE_LIMIT_ASK_PER_MIN", "1000")
     monkeypatch.setenv("RATE_LIMIT_DEFAULT_PER_MIN", "1000")
     get_settings.cache_clear()
+    reset_email_service_cache()
     _wipe_rate_limit_buckets()
     yield
     _wipe_rate_limit_buckets()
+    reset_email_service_cache()
     get_settings.cache_clear()
     _wipe_test_users()
 
@@ -114,6 +121,26 @@ def _wipe_test_users() -> None:
                 f"DELETE FROM users WHERE id IN ({placeholders})", user_ids
             )
         raw.execute("DELETE FROM user_invitations WHERE email LIKE 'test+%'")
+        # Bootstrap tests create throw-away tenants prefixed `bs-`; tear them
+        # down so the next test's "no owner exists" precondition holds.
+        tenant_ids = [
+            r[0]
+            for r in raw.execute("SELECT id FROM tenants WHERE slug LIKE 'bs-%'")
+        ]
+        for tid in tenant_ids:
+            raw.execute(
+                "DELETE FROM refresh_tokens WHERE user_id IN "
+                "(SELECT id FROM users WHERE tenant_id = ?)",
+                (tid,),
+            )
+            raw.execute(
+                "DELETE FROM security_events WHERE user_id IN "
+                "(SELECT id FROM users WHERE tenant_id = ?)",
+                (tid,),
+            )
+            raw.execute("DELETE FROM security_events WHERE tenant_id = ?", (tid,))
+            raw.execute("DELETE FROM users WHERE tenant_id = ?", (tid,))
+            raw.execute("DELETE FROM tenants WHERE id = ?", (tid,))
         raw.commit()
     finally:
         raw.close()
@@ -583,6 +610,7 @@ def test_password_reset_round_trip_and_invalidates_sessions(client):
         )
         assert row is not None
     # We only have the hash in the DB; pull the plaintext from the latest .eml.
+    assert "/reset/" in _read_latest_mail_body()
     plaintext_token = _read_latest_mail_token()
 
     new_pw = "Br4nd-New-Pass!"
@@ -698,6 +726,234 @@ def test_invite_token_is_single_use(client, no_auth_override):
 
 
 # ---------------------------------------------------------------------------
+# First-admin bootstrap
+# ---------------------------------------------------------------------------
+
+
+_BOOTSTRAP_KEY = "test-bootstrap-key-do-not-use-in-prod"
+
+
+def _bootstrap_payload(slug: str, email: str, password: str) -> dict:
+    return {
+        "setup_key": _BOOTSTRAP_KEY,
+        "tenant_slug": slug,
+        "tenant_name": f"Test {slug}",
+        "email": email,
+        "password": password,
+        "display_name": "First Owner",
+    }
+
+
+def test_bootstrap_disabled_when_setup_key_unset(client, monkeypatch):
+    """Without BOOTSTRAP_SETUP_KEY set the endpoint must 404 — no oracle for
+    'is bootstrap configured here?' beyond a single deliberate probe."""
+    monkeypatch.setenv("BOOTSTRAP_SETUP_KEY", "")
+    get_settings.cache_clear()
+
+    res = client.post(
+        "/auth/bootstrap/begin",
+        json=_bootstrap_payload(
+            slug=f"bs-{uuid4().hex[:6]}",
+            email=f"test+bs-{uuid4().hex[:6]}@example.com",
+            password="Sup3rSecur3-Pass!",
+        ),
+    )
+    assert res.status_code == 404
+
+
+def test_bootstrap_wrong_setup_key_is_401(client, monkeypatch):
+    monkeypatch.setenv("BOOTSTRAP_SETUP_KEY", _BOOTSTRAP_KEY)
+    get_settings.cache_clear()
+
+    payload = _bootstrap_payload(
+        slug=f"bs-{uuid4().hex[:6]}",
+        email=f"test+bs-{uuid4().hex[:6]}@example.com",
+        password="Sup3rSecur3-Pass!",
+    )
+    payload["setup_key"] = "wrong-key-but-long-enough-to-pass-validation"
+    res = client.post("/auth/bootstrap/begin", json=payload)
+    assert res.status_code == 401
+
+
+def test_bootstrap_begin_creates_owner_and_returns_mfa_challenge(client, monkeypatch):
+    monkeypatch.setenv("BOOTSTRAP_SETUP_KEY", _BOOTSTRAP_KEY)
+    get_settings.cache_clear()
+
+    slug = f"bs-{uuid4().hex[:6]}"
+    email = f"test+bs-{uuid4().hex[:6]}@example.com"
+    pw = "First-Adm1n-Pass!"
+
+    res = client.post(
+        "/auth/bootstrap/begin",
+        json=_bootstrap_payload(slug=slug, email=email, password=pw),
+    )
+    assert res.status_code == 201, res.text
+    body = res.json()
+    assert body["bootstrap_token"]
+    # Plaintext TOTP secret + otpauth URI for the operator to scan once.
+    assert body["mfa_secret"]
+    assert body["provisioning_uri"].startswith("otpauth://")
+
+    # The user exists as owner but MFA is NOT yet enrolled — only the
+    # complete step (proving possession of the TOTP secret) flips that on.
+    with SessionLocal() as db:
+        u = db.scalar(select(User).where(User.email == email))
+        assert u is not None
+        assert u.role == "owner"
+        assert u.mfa_enrolled is False
+        assert u.mfa_secret  # secret was stashed for verification
+
+
+def test_bootstrap_complete_enrolls_mfa_and_mints_session(client, monkeypatch):
+    import pyotp
+
+    monkeypatch.setenv("BOOTSTRAP_SETUP_KEY", _BOOTSTRAP_KEY)
+    get_settings.cache_clear()
+
+    slug = f"bs-{uuid4().hex[:6]}"
+    email = f"test+bs-{uuid4().hex[:6]}@example.com"
+    pw = "First-Adm1n-Pass!"
+
+    begin = client.post(
+        "/auth/bootstrap/begin",
+        json=_bootstrap_payload(slug=slug, email=email, password=pw),
+    )
+    assert begin.status_code == 201, begin.text
+    secret = begin.json()["mfa_secret"]
+    token = begin.json()["bootstrap_token"]
+
+    code = pyotp.TOTP(secret).now()
+    complete = client.post(
+        "/auth/bootstrap/complete",
+        json={"bootstrap_token": token, "mfa_code": code},
+    )
+    assert complete.status_code == 200, complete.text
+    body = complete.json()
+    assert body["token_type"] == "bearer"
+    assert body["access_token"]
+    # Recovery codes appear only here (one-shot) — never in begin's response.
+    assert len(body["recovery_codes"]) == mfa_mod.RECOVERY_CODE_COUNT
+    # Refresh cookie set so the new owner has a durable session.
+    assert complete.cookies.get(get_settings().refresh_cookie_name)
+
+    with SessionLocal() as db:
+        u = db.scalar(select(User).where(User.email == email))
+        assert u.mfa_enrolled is True
+        assert u.last_login_at is not None
+
+    # And a normal login with the same TOTP secret now works end-to-end —
+    # proving the bootstrapped account is indistinguishable from one that
+    # went through invite + manual MFA enrollment.
+    challenge = client.post(
+        "/auth/login",
+        json={"email": email, "password": pw, "tenant_slug": slug},
+    )
+    assert challenge.status_code == 202
+    assert challenge.json()["status"] == "mfa_required"
+    second_login = client.post(
+        "/auth/login",
+        json={
+            "mfa_token": challenge.json()["mfa_token"],
+            "mfa_code": pyotp.TOTP(secret).now(),
+        },
+    )
+    assert second_login.status_code == 200
+
+
+def test_bootstrap_closes_after_first_owner_exists(client, monkeypatch):
+    """Once any owner/admin lives in the tenant, /bootstrap/begin must 409 —
+    a leaked setup_key past that point grants nothing."""
+    import pyotp
+
+    monkeypatch.setenv("BOOTSTRAP_SETUP_KEY", _BOOTSTRAP_KEY)
+    get_settings.cache_clear()
+
+    slug = f"bs-{uuid4().hex[:6]}"
+    email1 = f"test+bs1-{uuid4().hex[:6]}@example.com"
+    pw = "First-Adm1n-Pass!"
+
+    begin = client.post(
+        "/auth/bootstrap/begin",
+        json=_bootstrap_payload(slug=slug, email=email1, password=pw),
+    )
+    assert begin.status_code == 201
+    secret = begin.json()["mfa_secret"]
+    token = begin.json()["bootstrap_token"]
+    complete = client.post(
+        "/auth/bootstrap/complete",
+        json={"bootstrap_token": token, "mfa_code": pyotp.TOTP(secret).now()},
+    )
+    assert complete.status_code == 200
+
+    # Second attempt against the same tenant — even with the correct key.
+    email2 = f"test+bs2-{uuid4().hex[:6]}@example.com"
+    res2 = client.post(
+        "/auth/bootstrap/begin",
+        json=_bootstrap_payload(slug=slug, email=email2, password=pw),
+    )
+    assert res2.status_code == 409
+
+
+def test_bootstrap_complete_rejects_wrong_mfa_code(client, monkeypatch):
+    monkeypatch.setenv("BOOTSTRAP_SETUP_KEY", _BOOTSTRAP_KEY)
+    get_settings.cache_clear()
+
+    slug = f"bs-{uuid4().hex[:6]}"
+    email = f"test+bs-{uuid4().hex[:6]}@example.com"
+
+    begin = client.post(
+        "/auth/bootstrap/begin",
+        json=_bootstrap_payload(slug=slug, email=email, password="First-Adm1n-Pass!"),
+    )
+    assert begin.status_code == 201
+    token = begin.json()["bootstrap_token"]
+
+    res = client.post(
+        "/auth/bootstrap/complete",
+        json={"bootstrap_token": token, "mfa_code": "000000"},
+    )
+    assert res.status_code == 400
+    # The owner row still exists but mfa_enrolled stays False, so the operator
+    # can simply re-POST /complete with a fresh code (same bootstrap_token,
+    # which has a 10-minute TTL).
+    with SessionLocal() as db:
+        u = db.scalar(select(User).where(User.email == email))
+        assert u is not None
+        assert u.mfa_enrolled is False
+
+
+def test_bootstrap_token_cannot_be_replayed_after_success(client, monkeypatch):
+    """After complete_bootstrap flips mfa_enrolled, the same bootstrap_token
+    must not be replayable to provision a second session."""
+    import pyotp
+
+    monkeypatch.setenv("BOOTSTRAP_SETUP_KEY", _BOOTSTRAP_KEY)
+    get_settings.cache_clear()
+
+    slug = f"bs-{uuid4().hex[:6]}"
+    email = f"test+bs-{uuid4().hex[:6]}@example.com"
+
+    begin = client.post(
+        "/auth/bootstrap/begin",
+        json=_bootstrap_payload(slug=slug, email=email, password="First-Adm1n-Pass!"),
+    )
+    secret = begin.json()["mfa_secret"]
+    token = begin.json()["bootstrap_token"]
+
+    ok = client.post(
+        "/auth/bootstrap/complete",
+        json={"bootstrap_token": token, "mfa_code": pyotp.TOTP(secret).now()},
+    )
+    assert ok.status_code == 200
+
+    replay = client.post(
+        "/auth/bootstrap/complete",
+        json={"bootstrap_token": token, "mfa_code": pyotp.TOTP(secret).now()},
+    )
+    assert replay.status_code == 400
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -705,13 +961,17 @@ def test_invite_token_is_single_use(client, no_auth_override):
 def _read_latest_mail_token() -> str:
     """Pull the most recent .eml in DEV_MAIL_DIR and extract the line that
     begins with 'Token:'. Used to bypass the lack of a real SMTP server."""
+    body = _read_latest_mail_body()
+    for line in body.splitlines():
+        if line.startswith("Token:"):
+            return line.split("Token:", 1)[1].strip()
+    raise AssertionError("no Token line in latest .eml")
+
+
+def _read_latest_mail_body() -> str:
     from pathlib import Path
 
     mail_dir = Path(os.environ["DEV_MAIL_DIR"])
     eml_files = sorted(mail_dir.glob("*.eml"), key=lambda p: p.stat().st_mtime)
     assert eml_files, f"no .eml files in {mail_dir}"
-    body = eml_files[-1].read_text(encoding="utf-8")
-    for line in body.splitlines():
-        if line.startswith("Token:"):
-            return line.split("Token:", 1)[1].strip()
-    raise AssertionError(f"no Token line in {eml_files[-1]}")
+    return eml_files[-1].read_text(encoding="utf-8")

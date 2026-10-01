@@ -10,12 +10,16 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.core.auth.deps import require_role
 from app.core.llm import LLMUnavailable
-from app.core.model_router import ProductionModelNotApproved, ensure_production_model_ready
+from app.core.model_router import (
+    ProductionModelNotApproved,
+    ensure_production_model_ready,
+    runtime_status,
+)
 from app.core.orchestrator import run_ask, run_ask_events
 from app.db import get_db
 from app.models_db import ClientRecord, User
 from app.routers.byo_keys import load_byo_key_for_user
-from app.schemas import AskRequest, AskResponse
+from app.schemas import AskRequest, AskResponse, AskRuntimeStatus
 
 
 router = APIRouter(tags=["ask"])
@@ -50,6 +54,14 @@ def _validated_client_id(db: Session, user: User, client_id: str | None) -> str:
         # this client code.
         raise HTTPException(status_code=404, detail="Client not found")
     return normalized
+
+
+@router.get("/ask/runtime-status", response_model=AskRuntimeStatus)
+def ask_runtime_status(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role(*_ASK_ROLES)),
+) -> dict:
+    return runtime_status(api_key=_byo_key_for(db, user), db=db)
 
 
 @router.post("/ask", response_model=AskResponse)

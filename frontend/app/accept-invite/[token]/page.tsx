@@ -38,7 +38,23 @@ export default function AcceptInvitePage({
     }
     setSubmitting(true);
     try {
-      await acceptInvite(token, password, displayName);
+      const result = await acceptInvite(token, password, displayName);
+      if (result.requires_mfa_setup && result.mfa_setup_token) {
+        // Admin/owner roles can't log in without MFA. Stash the staged
+        // setup payload in sessionStorage so the MFA page can read it
+        // without re-hitting the backend (the secret is single-show).
+        sessionStorage.setItem(
+          "glassbox.pending_invite_mfa",
+          JSON.stringify({
+            mfa_setup_token: result.mfa_setup_token,
+            mfa_secret: result.mfa_secret,
+            provisioning_uri: result.provisioning_uri,
+            created_at: Date.now(),
+          }),
+        );
+        router.replace(`/accept-invite/${token}/mfa`);
+        return;
+      }
       toast.success("Account created", {
         description: "Sign in with your new password.",
       });

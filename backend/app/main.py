@@ -76,7 +76,12 @@ app.add_middleware(
         "X-Request-ID",
         "X-Tenant-Slug",
     ],
-    expose_headers=["X-Request-ID", "X-RateLimit-Limit", "X-RateLimit-Remaining"],
+    expose_headers=[
+        "Retry-After",
+        "X-Request-ID",
+        "X-RateLimit-Limit",
+        "X-RateLimit-Remaining",
+    ],
     max_age=600,
 )
 

@@ -35,6 +35,9 @@ class Settings(BaseSettings):
         default=0.25, alias="LLM_RETRY_BACKOFF_SECONDS"
     )
     verify_mode: str = Field(default="auto", alias="VERIFY_MODE")
+    local_evidence_mode: bool = Field(
+        default=True, alias="GLASSBOX_LOCAL_EVIDENCE_MODE"
+    )
     production_mode: bool = Field(default=False, alias="GLASSBOX_PRODUCTION_MODE")
     allow_openrouter_free_in_production: bool = Field(
         default=False, alias="ALLOW_OPENROUTER_FREE_IN_PRODUCTION"
@@ -92,7 +95,7 @@ class Settings(BaseSettings):
     )
     eval_failure_sample_size: int = Field(default=8, alias="EVAL_FAILURE_SAMPLE_SIZE")
     eval_min_questions_for_production: int = Field(
-        default=164, alias="EVAL_MIN_QUESTIONS_FOR_PRODUCTION"
+        default=183, alias="EVAL_MIN_QUESTIONS_FOR_PRODUCTION"
     )
     eval_fast_gate_size: int = Field(default=25, alias="EVAL_FAST_GATE_SIZE")
     eval_min_refusal_correctness: float = Field(
@@ -160,6 +163,28 @@ class Settings(BaseSettings):
         default=1, alias="PASSWORD_RESET_TTL_HOURS"
     )
     dev_mail_dir: str = Field(default="/tmp/glassbox-mail", alias="DEV_MAIL_DIR")
+    # SMTP. When SMTP_HOST is set, transactional mail (password reset,
+    # invites, future flows) goes out via SMTP instead of being written to
+    # DEV_MAIL_DIR. Leave SMTP_HOST blank to keep the dev .eml-on-disk
+    # behavior — important so tests don't try to reach a real server.
+    smtp_host: str | None = Field(default=None, alias="SMTP_HOST")
+    smtp_port: int = Field(default=587, alias="SMTP_PORT")
+    smtp_username: str | None = Field(default=None, alias="SMTP_USERNAME")
+    smtp_password: str | None = Field(default=None, alias="SMTP_PASSWORD")
+    smtp_from: str = Field(
+        default="no-reply@glassbox.local", alias="SMTP_FROM"
+    )
+    smtp_use_tls: bool = Field(default=True, alias="SMTP_USE_TLS")
+    # First-admin bootstrap key. When set (non-empty), /auth/bootstrap/* lets
+    # the operator create the very first owner of a tenant without already
+    # holding an admin session — solves the chicken-and-egg "admin needs MFA
+    # but can't enroll MFA without being logged in" problem. The endpoint
+    # self-closes once any owner/admin exists in the target tenant, so a
+    # leaked key after first use grants nothing. Leave unset (the default) to
+    # disable the endpoint entirely.
+    bootstrap_setup_key: str | None = Field(
+        default=None, alias="BOOTSTRAP_SETUP_KEY"
+    )
 
     # --- Phase E hardening ---
     app_encryption_key: str = Field(

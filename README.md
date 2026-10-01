@@ -12,10 +12,10 @@
 |---|---|---|
 | Train our own LLM from scratch? | **No** | Costs millions, pointless for this. |
 | Fine-tune an open LLM on finance data? | **No** | Bakes knowledge into weights → encourages hallucination → kills the whole "grounded only" thesis. |
-| What runs the language reasoning? | **Free open-source model via a free inference host** (Groq / OpenRouter free tier) | Free, public, no per-visitor cost, lets us control temperature/seed for the determinism experiments. |
+| What runs the advisor answer path? | **Private local evidence engine first; hosted LLM optional later** | Runs without paid APIs by using retrieval, deterministic policy checks, claim verification, and audit replay. |
 | Do we train ANY of our own models? | **Yes — small ML models for the trust layer** (grounding scorer, refusal router, fallback classifier) | Cheap to train, runs free, makes the project genuinely *ours*, mirrors skills already on the resume. |
 | Where does it get hosted? | **AWS** (using the $150 credits) — app, audit DB, document storage, public URL | Turns paper AWS certs into a real deployed project. |
-| Who pays when strangers use the demo? | **Nobody** | Free model host + AWS free/cheap tiers + rate limiting. |
+| Who pays when strangers use the demo? | **Nobody** | No paid model calls in the default path + AWS free/cheap tiers + rate limiting. |
 
 **One-line pitch:** Everyone is building AI agents that give finance answers; almost nobody is building the trust-and-audit layer that makes those answers safe to use. GlassBox is that missing layer.
 
@@ -26,7 +26,7 @@ This folder now contains a runnable local implementation:
 - FastAPI backend with retrieval, grounded answering, verification, refusal, fallback, audit replay, metrics, determinism, rate limiting, and trained scikit-learn trust models.
 - Synthetic IPS/factsheet/regulation corpus plus an ingestible local vector store.
 - Next.js frontend with advisor chat, cited sources, trust badges, dashboard, and audit replay pages.
-- `README-LATER.md` tracks cloud, real hosted-model, and hardening work that needs external services.
+- `docs/LLM-QUALIFICATION-REPORT.md` tracks the no-paid model decision and hosted-model qualification status.
 
 Run locally:
 
@@ -89,8 +89,8 @@ The obvious fix is an AI agent. But banks won't deploy one because of three unso
             └─────┬──────┘ └───┬────┘ └───┬───┘ └───┬───┘ └────┬─────┘
                   │            │          │         │          │
             ┌─────▼─────┐  ┌───▼──────────▼───┐ ┌───▼───┐  ┌───▼──────┐
-            │ Vector DB │  │  FREE OPEN LLM   │ │ OUR   │  │  Audit   │
-            │  + S3     │  │ (Groq/OpenRouter)│ │ SMALL │  │   DB     │
+            │ Vector DB │  │ LOCAL EVIDENCE  │ │ OUR   │  │  Audit   │
+            │  + S3     │  │ ENGINE / LLM OPT│ │ SMALL │  │   DB     │
             │  corpus   │  │                  │ │MODELS │  │ (Postgres)│
             └───────────┘  └──────────────────┘ └───────┘  └──────────┘
 ```
@@ -107,8 +107,8 @@ Stored in S3, indexed into the vector DB.
 **B. Retrieval layer (RAG)**
 Takes the advisor's question, finds the most relevant document chunks. Built with a vector database (Chroma/FAISS/pgvector) + an embedding model (free, open-source).
 
-**C. Answer Agent**
-The free open LLM drafts an answer **using only the retrieved chunks**, instructed to cite each claim. Low temperature for stability.
+**C. Answer Path**
+The default path is a private local evidence engine: source retrieval, deterministic finance-policy extraction, claim verification, and advisor-safe rendering. Hosted/self-hosted LLMs remain optional candidates only after they pass the model gate.
 
 **D. Verify Agent (Chain-of-Verification)**
 Breaks the draft into atomic claims → checks each against its cited source → discards/flags unsupported claims → returns the validated answer or a refusal.
@@ -117,7 +117,7 @@ Breaks the draft into atomic claims → checks each against its cited source →
 - **Grounding/Hallucination scorer** (our model): scores how well each answer is supported by sources.
 - **Refusal router** (our model): decides answerable vs. must-escalate.
 - **Determinism harness**: runs each query N times, measures answer-drift, outputs a determinism score per query type.
-- **Fallback classifier** (our model): if the LLM host is down/rate-limited, a small trained model returns a safe structured response (same idea as the AutoScaler fallback).
+- **Fallback classifier** (our model): if an optional hosted LLM route is down/rate-limited, a small trained model returns a safe structured response (same idea as the AutoScaler fallback).
 
 **F. Provenance Logger + Audit DB**
 Every interaction logged: question, retrieved sources, claims kept/discarded, final answer or refusal, which rule applied, timestamps. Stored in Postgres (RDS). Replayable — an auditor can reconstruct exactly what the agent "knew" at decision time.
@@ -129,17 +129,18 @@ Live view of: hallucination rate, refusal/escalation frequency, determinism scor
 
 ## 4. Models — Exactly What We Use vs. Train
 
-### Use (don't train): the language brain
-- **Free open-source LLM** via a free inference host (start: **Groq** with Llama 3.3 70B, or **OpenRouter** free models).
-- Optional **"bring your own key"** toggle so power users can run a stronger model.
-- **Not fine-tuned** — kept grounded strictly on retrieved docs.
+### Use first: the local evidence engine
+- `local:glassbox-evidence-engine` is the default no-paid product route.
+- It passed the full 183-case local eval with 100% outcome accuracy, 100% citation accuracy, and 0% hallucination in the current qualification report.
+- Optional hosted/self-hosted LLM routes can be evaluated later, but they are not required for the product path.
+- **Not fine-tuned** — answers stay grounded strictly on retrieved docs.
 
 ### Train ourselves (this is OUR ML work): the trust layer
 | Model | Job | How trained | Compute |
 |---|---|---|---|
 | Grounding/Hallucination scorer | Score if answer is supported by sources | scikit-learn classifier on labeled good/bad answer pairs | CPU, free (Kaggle/Colab) |
 | Refusal router | Answerable vs escalate-to-human | small classifier on labeled questions | CPU, free |
-| Fallback classifier | Safe structured reply when LLM host fails | Random Forest on logged incidents | CPU, free |
+| Fallback classifier | Safe structured reply when an optional hosted route fails | Random Forest on logged incidents | CPU, free |
 
 > These run free, are deployable on AWS without a GPU, and make the project demonstrably yours — directly echoing the IIT metric-design work and the AutoScaler fallback classifier already on the resume.
 
@@ -151,7 +152,7 @@ Live view of: hallucination rate, refusal/escalation frequency, determinism scor
 |---|---|---|
 | Frontend | Next.js + React + TypeScript + Tailwind + Recharts | Already known from Kalakraft & AutoScaler |
 | Backend | Python + FastAPI | Already known from IIT/AutoScaler |
-| LLM | Free open model (Groq/OpenRouter) | No paid API |
+| Inference | Private local evidence engine; optional OpenRouter/Ollama/vLLM candidates | No paid API required by default |
 | Embeddings | Open-source (e.g. sentence-transformers / bge) | Free |
 | Vector DB | Chroma / FAISS / pgvector | Free, lightweight |
 | Our ML models | scikit-learn | CPU only |
@@ -167,7 +168,7 @@ Live view of: hallucination rate, refusal/escalation frequency, determinism scor
 
 **Use credits for:** EC2/Lambda hosting, RDS Postgres (audit logs), S3 (corpus), API Gateway, IAM. Comfortably runs a public demo for months.
 
-**Do NOT use credits for:** GPU instances for the LLM (free external host instead) or long idle instances.
+**Do NOT use credits for:** GPU instances for LLM training or long idle instances.
 
 **Guardrails (do this on day one):**
 - Set billing alarms at **$20 / $50 / $100**.
@@ -184,7 +185,7 @@ Live view of: hallucination rate, refusal/escalation frequency, determinism scor
 
 ### Phase 0 — Setup (Days 1–2)
 - Repo, README (this file), env config.
-- Get free LLM host key (Groq/OpenRouter). Test a basic call.
+- Enable `GLASSBOX_LOCAL_EVIDENCE_MODE=1` and test a grounded `/ask` call.
 - AWS account + billing alarms. S3 bucket created.
 
 ### Phase 1 — Corpus + Retrieval (Days 3–6)
@@ -194,7 +195,7 @@ Live view of: hallucination rate, refusal/escalation frequency, determinism scor
 - **Milestone:** ask a question, see the right documents come back.
 
 ### Phase 2 — Answer Agent + grounding (Days 7–10)
-- LLM drafts answers using only retrieved chunks, with citations.
+- Local evidence engine drafts answers using only retrieved chunks, with citations.
 - Strip any claim lacking a source.
 - **Milestone:** every answer shows highlighted source citations.
 
@@ -217,7 +218,7 @@ Live view of: hallucination rate, refusal/escalation frequency, determinism scor
 
 ### Phase 6 — Determinism harness (Days 26–30)
 - Run each query N times; measure answer-drift; score per query type.
-- Optional: compare a frontier model vs an open model (reproduces the known research finding that no model is both perfectly deterministic and accurate).
+- Optional: compare hosted/self-hosted LLM candidates against the local evidence route.
 - **Milestone:** determinism score on the dashboard + a short write-up of the comparison.
 
 ### Phase 7 — Deploy + public-demo hardening (Days 31–35)
@@ -228,7 +229,7 @@ Live view of: hallucination rate, refusal/escalation frequency, determinism scor
 
 ### Phase 8 — Polish (Days 36–42, optional)
 - README diagrams, demo video/GIF, screenshots.
-- Short "design decisions" doc (why no fine-tuning, why grounded-only, why open model + AWS split).
+- Short "design decisions" doc (why no full LLM training, why grounded-only, why local evidence + optional hosted routes).
 - Clean architecture diagram for interviews.
 
 ---
@@ -254,14 +255,14 @@ Live view of: hallucination rate, refusal/escalation frequency, determinism scor
 > - Trained custom grounding, refusal-routing, and fallback classifiers (scikit-learn) to guard the trust boundary and provide an LLM-failure fallback with zero external dependency.
 > - Designed a **determinism harness** measuring answer-drift across repeated runs, surfacing the consistency/accuracy trade-off that current financial-AI research treats as an open problem.
 > - Generated **replayable decision traces** and a live governance dashboard (hallucination, refusal, determinism, audit-completeness), addressing the auditability gap regulators require under the EU AI Act.
-> - Deployed on **AWS** (EC2/Lambda, RDS, S3, IAM/RBAC) with rate-limited public access on a free open-source model — no per-user cost.
+> - Deployed on **AWS** (EC2/Lambda, RDS, S3, IAM/RBAC) with rate-limited public access and no paid model dependency.
 
 ---
 
 ## 10. Interview Talking Points (defend the choices)
 
 - **"Why not fine-tune a finance model?"** → Fine-tuning pushes the model to answer from baked-in weights, undermining auditability. A compliance-grade system needs answers grounded strictly in retrieved, citable sources, with separate trained models guarding the trust boundary.
-- **"Why an open model not a paid API?"** → Cost-free public access + full control of temperature/seed for the determinism experiments; mirrors how banks avoid leaking data to third parties.
+- **"Why local evidence instead of a paid API?"** → Cost-free public access, private data flow, deterministic behavior, and a replayable source trail; hosted/self-hosted LLMs can still be evaluated later.
 - **"How does this relate to UBS?"** → It sits *on top of* an assistant like UBS Red rather than competing with it, and maps directly to UBS's AI governance principles (autonomy, harm-prevention, transparency) and their agentic-AI mandate.
 - **"What's genuinely new here?"** → The trust harness — measuring and displaying grounding + determinism live — is the part the industry openly admits is missing.
 
@@ -271,7 +272,7 @@ Live view of: hallucination rate, refusal/escalation frequency, determinism scor
 
 | Risk | Mitigation |
 |---|---|
-| Free LLM host rate limits | Request queue + "busy" handling + BYO-key option |
+| Optional hosted LLM rate limits | Default to local evidence mode; queue hosted requests and keep BYO-key as an admin option |
 | AWS credits burn | Billing alarms, no idle GPU, train models off-AWS |
 | Scope creep | Lean demo (Phases 0–4) is already shippable; rest is bonus |
 | Weak grounding on small models | Tight corpus, strong retrieval, verification pass |

@@ -2,9 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, ScanSearch } from "lucide-react";
+import { ChevronLeft, ChevronRight, RotateCcw, ScanSearch } from "lucide-react";
 
 import {
+  ApiError,
+  RateLimitedError,
+  UnauthorizedError,
   askStream,
   createEscalation,
   type AskResponse,
@@ -28,6 +31,8 @@ type Message = {
   groundingScore?: number | null;
   citations?: CitationRef[];
   error?: string;
+  errorTitle?: string;
+  retryQuestion?: string;
   escalation?: Escalation | null;
   escalating?: boolean;
   timestamp: string;
@@ -129,17 +134,19 @@ export function Conversation({ client }: Props) {
         description: `Logged as ${result.decision_id.slice(0, 8)}.`,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Backend unavailable.";
+      const { title, message } = describeAskError(err);
       setMessages((m) => [
         ...m,
         {
           id: `err-${Date.now()}`,
           role: "assistant",
           error: message,
+          errorTitle: title,
+          retryQuestion: text,
           timestamp: new Date().toISOString(),
         },
       ]);
-      toast.error("Request failed", {
+      toast.error(title, {
         description: message,
       });
     } finally {
@@ -188,7 +195,6 @@ export function Conversation({ client }: Props) {
       <aside className="hidden w-56 shrink-0 flex-col border-r border-border/60 bg-sidebar/40 xl:flex">
         <div className="flex items-center justify-between border-b border-border/60 px-3 py-2.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
           Threads
-          <Button variant="ghost" size="icon-sm" className="h-6 w-6">+</Button>
         </div>
         <ul className="flex-1 overflow-auto p-1.5 text-sm">
           <li>
@@ -198,9 +204,6 @@ export function Conversation({ client }: Props) {
                 {messages.length === 0 ? "No messages" : `${messages.length} messages`}
               </div>
             </button>
-          </li>
-          <li className="mt-1 px-2.5 py-1 text-[11px] text-muted-foreground">
-            Previous conversations will appear here.
           </li>
         </ul>
       </aside>
@@ -230,7 +233,12 @@ export function Conversation({ client }: Props) {
                 );
               }
               return m.error ? (
-                <InlineErrorMessage key={m.id} message={m.error} />
+                <InlineErrorMessage
+                  key={m.id}
+                  title={m.errorTitle}
+                  message={m.error}
+                  onRetry={m.retryQuestion ? () => handleSubmit(m.retryQuestion!) : undefined}
+                />
               ) : (
                 <AssistantMessage
                   key={m.id}
@@ -297,20 +305,69 @@ export function Conversation({ client }: Props) {
   );
 }
 
-function InlineErrorMessage({ message }: { message: string }) {
+function InlineErrorMessage({
+  title = "GlassBox · request failed",
+  message,
+  onRetry,
+}: {
+  title?: string;
+  message: string;
+  onRetry?: () => void;
+}) {
   return (
     <div className="rounded-r-lg border border-l-[3px] border-l-destructive bg-card p-4 text-sm">
       <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-        GlassBox · request failed
+        {title}
       </div>
       <p className="mt-2 text-foreground">
-        I could not complete that request. {message}
+        {message}
       </p>
-      <p className="mt-1 text-xs text-muted-foreground">
-        The question stayed in the thread so an advisor can retry or escalate with context.
-      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {onRetry ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1.5 rounded-md text-xs"
+            onClick={onRetry}
+          >
+            <RotateCcw className="h-3 w-3" />
+            Retry
+          </Button>
+        ) : null}
+        <span className="text-xs text-muted-foreground">
+          The question stayed in the thread with its context.
+        </span>
+      </div>
     </div>
   );
+}
+
+function describeAskError(err: unknown): { title: string; message: string } {
+  if (err instanceof RateLimitedError) {
+    return {
+      title: "GlassBox · rate limited",
+      message: `The ask tier is temporarily full. Retry in about ${err.retryAfter} second${err.retryAfter === 1 ? "" : "s"}.`,
+    };
+  }
+  if (err instanceof UnauthorizedError) {
+    return {
+      title: "GlassBox · session expired",
+      message: "Sign in again, then retry the saved question from this thread.",
+    };
+  }
+  if (err instanceof ApiError && err.status === 503) {
+    return {
+      title: "GlassBox · model route unavailable",
+      message:
+        typeof err.detail === "object" && err.detail && "detail" in err.detail
+          ? String((err.detail as { detail?: unknown }).detail)
+          : "Production inference is blocked or the active model route is unavailable.",
+    };
+  }
+  return {
+    title: "GlassBox · request failed",
+    message: err instanceof Error ? err.message : "Backend unavailable.",
+  };
 }
 
 function EmptyState({ clientName }: { clientName: string }) {

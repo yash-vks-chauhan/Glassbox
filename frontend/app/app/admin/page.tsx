@@ -63,7 +63,6 @@ export default function AdminPage() {
   const [byoKeys, setByoKeys] = useState<ByoKey[] | null>(null);
   const [byoKey, setByoKey] = useState("");
   const [savingByoKey, setSavingByoKey] = useState(false);
-  const [temp, setTemp] = useState("0.1");
 
   useEffect(() => {
     if (!allowed) return;
@@ -84,6 +83,7 @@ export default function AdminPage() {
     leaderboard?.models.find((row) => row.route === selectedRoute) ??
     leaderboard?.models[0] ??
     null;
+  const productionChecklist = buildProductionChecklist(productionStatus, health, status);
 
   async function refreshModels() {
     setEvaluating(true);
@@ -110,10 +110,11 @@ export default function AdminPage() {
     }
   }
 
-  async function runFastEval() {
+  async function runEval(gate: "fast" | "full") {
     setEvaluating(true);
     try {
-      const leaderboardRows = await runModelEval(40, 2, "fast");
+      const limit = gate === "full" ? productionStatus?.required_eval_questions ?? 183 : 40;
+      const leaderboardRows = await runModelEval(limit, 2, gate, selectedRoute ? [selectedRoute] : undefined);
       const [historyRows, productionRows] = await Promise.all([
         getModelEvalRuns(12).catch(() => []),
         getProductionModelStatus().catch((error) => {
@@ -128,7 +129,7 @@ export default function AdminPage() {
       if (leaderboardRows.models.length) {
         setSelectedRoute(leaderboardRows.models[0].route);
       }
-      toast.success("Fast model gate completed");
+      toast.success(gate === "full" ? "Full model gate completed" : "Fast model gate completed");
     } catch (error) {
       toast.error("Eval failed", {
         description: error instanceof Error ? error.message : "Model evaluation could not run.",
@@ -136,10 +137,6 @@ export default function AdminPage() {
     } finally {
       setEvaluating(false);
     }
-  }
-
-  function saveSettingsToast() {
-    toast.success("Settings saved");
   }
 
   async function refreshByoKeys() {
@@ -220,16 +217,43 @@ export default function AdminPage() {
               <div className="space-y-3">
                 <Row
                   label="Mode"
-                  value={status.local_llm ? "Local deterministic demo mode" : "Model router"}
+                  value={
+                    status.local_evidence_mode
+                      ? "Private local evidence mode"
+                      : status.local_llm
+                        ? "Local deterministic demo mode"
+                        : "Model router"
+                  }
                 />
-                <Row label="Model" value={<code className="font-mono text-[12px]">{status.configured_model}</code>} />
+                <Row
+                  label="Model"
+                  value={
+                    status.local_evidence_mode ? (
+                      "No paid model required"
+                    ) : (
+                      <code className="font-mono text-[12px]">{status.configured_model}</code>
+                    )
+                  }
+                />
                 <Row
                   label="OpenRouter key"
-                  value={status.has_openrouter_key ? "configured" : "not configured"}
+                  value={
+                    status.local_evidence_mode
+                      ? "not required"
+                      : status.has_openrouter_key
+                        ? "configured"
+                        : "not configured"
+                  }
                 />
                 <Row
                   label="Models endpoint"
-                  value={status.models_endpoint_reachable ? "reachable" : "offline"}
+                  value={
+                    status.models_endpoint_reachable === null
+                      ? "not used"
+                      : status.models_endpoint_reachable
+                        ? "reachable"
+                        : "offline"
+                  }
                 />
               </div>
             )}
@@ -250,17 +274,27 @@ export default function AdminPage() {
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="font-medium">
-                      {productionStatus.product_inference_allowed
+                      {productionStatus.local_evidence_mode
+                        ? "Local evidence mode is ready"
+                        : productionStatus.product_inference_allowed
                         ? "Production inference is allowed"
                         : "Production inference is blocked"}
                     </div>
                     <StatusPill ok={productionStatus.product_inference_allowed} />
                   </div>
                   <div className="mt-1 text-xs">
-                    {productionStatus.active_route ??
-                      productionStatus.blocked_reason ??
-                      "No active production route."}
+                    {productionStatus.local_evidence_mode
+                      ? "Private, source-backed decisions run without paid model calls."
+                      : productionStatus.active_route ??
+                        productionStatus.blocked_reason ??
+                        "No active production route."}
                   </div>
+                </div>
+
+                <div className="grid gap-2 md:grid-cols-2">
+                  {productionChecklist.map((item) => (
+                    <ChecklistItem key={item.label} {...item} />
+                  ))}
                 </div>
 
                 <div className="grid gap-2 md:grid-cols-2">
@@ -269,16 +303,30 @@ export default function AdminPage() {
                     value={productionStatus.production_mode ? "on" : "off"}
                   />
                   <MetricCard
-                    label="Full gate"
-                    value={`${productionStatus.required_eval_questions} cases`}
+                    label={productionStatus.local_evidence_mode ? "Hosted gate" : "Full gate"}
+                    value={
+                      productionStatus.local_evidence_mode
+                        ? "not required"
+                        : `${productionStatus.required_eval_questions} cases`
+                    }
                   />
                   <MetricCard
                     label="Eval freshness"
-                    value={`${productionStatus.eval_freshness_hours}h`}
+                    value={
+                      productionStatus.local_evidence_mode
+                        ? "not required"
+                        : `${productionStatus.eval_freshness_hours}h`
+                    }
                   />
                   <MetricCard
                     label="Recent eval required"
-                    value={productionStatus.require_recent_eval ? "yes" : "no"}
+                    value={
+                      productionStatus.local_evidence_mode
+                        ? "no"
+                        : productionStatus.require_recent_eval
+                          ? "yes"
+                          : "no"
+                    }
                   />
                 </div>
 
@@ -301,10 +349,16 @@ export default function AdminPage() {
                         <span
                           className={cn(
                             "rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em]",
-                            route.approved_for_inference ? "state-grounded" : "state-flagged",
+                            route.ready_for_inference ? "state-grounded" : "state-flagged",
                           )}
                         >
-                          {route.approved_for_inference ? "Approved" : "Blocked"}
+                          {route.ready_for_inference
+                            ? productionStatus.local_evidence_mode
+                              ? "Local evidence"
+                              : "Ready"
+                            : route.approved_for_inference
+                              ? "Approved · smoke failing"
+                              : "Blocked"}
                         </span>
                         <span className="font-medium">{route.label}</span>
                         <code className="rounded bg-muted px-1.5 py-0.5 text-[11px]">
@@ -312,7 +366,10 @@ export default function AdminPage() {
                         </code>
                       </div>
                       <div className="mt-1 text-xs text-muted-foreground">
-                        {route.blocked_reason || route.approval.reason || "Waiting for eval gate."}
+                        {route.smoke_error ||
+                          route.blocked_reason ||
+                          route.approval.reason ||
+                          "Waiting for eval gate."}
                       </div>
                     </div>
                   ))}
@@ -340,12 +397,19 @@ export default function AdminPage() {
                         </code>
                       </div>
                       <div className="mt-1 text-xs text-muted-foreground">
-                        {row.error || row.blocked_reason || "Configured and reachable."}
+                        {row.smoke_error || row.error || row.blocked_reason || "Listed and chat-usable."}
                       </div>
                     </div>
                     <div className="text-right text-xs text-muted-foreground">
-                      <div>{row.latency_ms ?? "—"}ms</div>
-                      <div>{row.production_eligible ? "Product eligible" : "Demo/fallback only"}</div>
+                      <div>{row.latency_ms ?? "—"}ms list</div>
+                      <div>{row.smoke_latency_ms ?? "—"}ms smoke</div>
+                      <div>
+                        {row.model === "glassbox-evidence-engine"
+                          ? "Private evidence engine"
+                          : row.production_eligible
+                            ? "Product eligible"
+                            : "Demo/fallback only"}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -368,10 +432,20 @@ export default function AdminPage() {
                     size="sm"
                     className="h-7 gap-1.5 rounded-md text-xs"
                     disabled={evaluating}
-                    onClick={runFastEval}
+                    onClick={() => runEval("fast")}
                   >
                     <RefreshCw className="h-3.5 w-3.5" />
-                    {evaluating ? "Scoring" : "Run eval"}
+                    {evaluating ? "Scoring" : "Fast gate"}
+                  </Button>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="h-7 gap-1.5 rounded-md text-xs"
+                    disabled={evaluating || !selectedRoute}
+                    onClick={() => runEval("full")}
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    Full gate
                   </Button>
                   <span>
                     Pass requires outcome ≥ {pct(leaderboard.thresholds.min_outcome_accuracy)},
@@ -519,7 +593,9 @@ export default function AdminPage() {
           <Section icon={KeyRound} title="Bring your own key">
             <div className="space-y-3">
               <p className="text-xs text-muted-foreground">
-                Enrol an OpenRouter key once. The backend encrypts it and only shows metadata here.
+                {status?.local_evidence_mode
+                  ? "Optional. Private local evidence mode does not need a paid model key."
+                  : "Enrol an OpenRouter key once. The backend encrypts it and only shows metadata here."}
               </p>
               {byoKeys === null ? (
                 <Skeleton className="h-12 w-full rounded-md" />
@@ -582,29 +658,28 @@ export default function AdminPage() {
           <Section icon={Sigma} title="Determinism harness">
             <div className="space-y-3">
               <p className="text-xs text-muted-foreground">
-                Runs the same set of canary questions N times against the active model and posts
-                the drift to Insights. Not exposed to advisors.
+                Display-only placeholder for now. Run determinism through the backend endpoint or eval script until schedules are persisted.
               </p>
               <div className="grid grid-cols-2 gap-3">
                 <FormRow label="Schedule">
-                  <Input defaultValue="Daily · 02:00 UTC" />
+                  <Input defaultValue="Daily · 02:00 UTC" disabled />
                 </FormRow>
                 <FormRow label="Runs per query">
-                  <Input defaultValue="5" />
+                  <Input defaultValue="5" disabled />
                 </FormRow>
                 <FormRow label="Alternate model">
-                  <Input placeholder="claude-3.5-sonnet" />
+                  <Input placeholder="provider:model" disabled />
                 </FormRow>
                 <FormRow label="Temperature">
-                  <Input value={temp} onChange={(e) => setTemp(e.target.value)} />
+                  <Input defaultValue="0.1" disabled />
                 </FormRow>
               </div>
               <div className="flex items-center gap-3">
-                <Switch defaultChecked />
-                <span className="text-sm text-muted-foreground">Auto-publish to Insights</span>
+                <Switch defaultChecked disabled />
+                <span className="text-sm text-muted-foreground">Auto-publish to Insights (not persisted yet)</span>
               </div>
-              <Button className="h-9 rounded-md text-xs" onClick={saveSettingsToast}>
-                Save schedule
+              <Button className="h-9 rounded-md text-xs" disabled>
+                Schedule persistence pending
               </Button>
             </div>
           </Section>
@@ -812,6 +887,99 @@ function StatusPill({ ok }: { ok: boolean }) {
   );
 }
 
+function buildProductionChecklist(
+  productionStatus: ProductionModelStatus | null,
+  health: ModelHealth[] | null,
+  status: LlmStatus | null,
+) {
+  const readyRoute = productionStatus?.ready_routes[0] ?? null;
+  const activeRoute = productionStatus?.active_route ?? readyRoute ?? productionStatus?.approved_routes[0] ?? null;
+  const activeHealth = activeRoute ? health?.find((row) => row.route === activeRoute) : null;
+  if (productionStatus?.local_evidence_mode) {
+    return [
+      {
+        label: "Endpoint usable",
+        ok: true,
+        detail: `${productionStatus.active_route ?? "local:glassbox-evidence-engine"} is ready locally.`,
+      },
+      {
+        label: "Local evidence engine ready",
+        ok: true,
+        detail: "Uses retrieved sources, policy checks, claim verification, and audit replay.",
+      },
+      {
+        label: "Full eval fresh",
+        ok: true,
+        detail: "Hosted model gate is not required for private local evidence mode.",
+      },
+      {
+        label: "Hosted model gate skipped",
+        ok: true,
+        detail: "No paid provider route or APPROVED_MODELS promotion is required.",
+      },
+      {
+        label: "Production mode on",
+        ok: Boolean(productionStatus.production_mode),
+        detail: productionStatus.production_mode
+          ? "Product mode is on for non-LLM guardrails."
+          : "Local evidence mode is active; product mode can still be enabled for deployment.",
+      },
+    ];
+  }
+  const chatUsable = Boolean(
+    readyRoute || activeHealth?.chat_usable || productionStatus?.routes.some((route) => route.ready_for_inference),
+  );
+  const hasConfiguredRoute = health?.some((row) => row.production_eligible && row.configured) ?? false;
+  const approvedRoute = productionStatus?.approved_routes[0] ?? null;
+  return [
+    {
+      label: "Endpoint usable",
+      ok: chatUsable,
+      detail: chatUsable
+        ? `${readyRoute ?? activeRoute} completed a chat smoke test.`
+        : activeRoute
+          ? `${activeRoute} has not passed chat smoke.`
+          : "No product route has passed chat smoke.",
+    },
+    {
+      label: "Key or local route configured",
+      ok: Boolean(status?.has_openrouter_key || hasConfiguredRoute),
+      detail: status?.has_openrouter_key ? "OpenRouter key metadata is present." : "Using non-hosted candidate route configuration.",
+    },
+    {
+      label: "Full eval fresh",
+      ok: Boolean(approvedRoute),
+      detail: approvedRoute
+        ? `${approvedRoute} has a fresh passing full eval.`
+        : productionStatus
+          ? `${productionStatus.required_eval_questions} cases required.`
+          : "Production status unavailable.",
+    },
+    {
+      label: "Approved route promoted",
+      ok: Boolean(approvedRoute),
+      detail: approvedRoute ?? "No approved route active.",
+    },
+    {
+      label: "Production mode on",
+      ok: Boolean(productionStatus?.production_mode),
+      detail: productionStatus?.production_mode ? "Product gate is enforcing approvals." : "Demo/router mode is active.",
+    },
+  ];
+}
+
+function ChecklistItem({ label, ok, detail }: { label: string; ok: boolean; detail: string }) {
+  return (
+    <div className={cn("rounded-md border px-3 py-2 text-sm", ok ? "state-grounded" : "state-flagged")}>
+      <div className="flex items-center gap-2 font-medium">
+        {ok ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}
+        {label}
+      </div>
+      <div className="mt-1 text-xs">{detail}</div>
+    </div>
+  );
+}
+
 function Cell({
   children,
   align = "left",
@@ -850,8 +1018,11 @@ function FormRow({ label, children }: { label: string; children: React.ReactNode
 function Guardrail({ label, defaultOn = false }: { label: string; defaultOn?: boolean }) {
   return (
     <li className="flex items-center justify-between gap-3 rounded-md border bg-background/60 px-3 py-2">
-      <span>{label}</span>
-      <Switch defaultChecked={defaultOn} />
+      <span>
+        {label}
+        <span className="ml-1.5 text-xs text-muted-foreground">(fixed)</span>
+      </span>
+      <Switch defaultChecked={defaultOn} disabled />
     </li>
   );
 }

@@ -10,7 +10,7 @@ from app.config import get_settings
 from app.models_db import ModelEvalRun
 
 
-MODEL_EVAL_DATASET_VERSION = "glassbox-eval-v2"
+MODEL_EVAL_DATASET_VERSION = "glassbox-eval-v4"
 _APPROVAL_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 
 

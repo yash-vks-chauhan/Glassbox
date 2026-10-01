@@ -26,6 +26,11 @@ from app.db import get_db
 from app.models_db import Tenant, User
 from app.schemas import (
     AcceptInviteRequest,
+    AcceptInviteResponse,
+    BootstrapBeginRequest,
+    BootstrapBeginResponse,
+    BootstrapCompleteRequest,
+    BootstrapCompleteResponse,
     ForgotPasswordRequest,
     InviteRequest,
     LoginRequest,
@@ -248,13 +253,17 @@ def invite(
     return {"status": "invited"}
 
 
-@router.post("/accept-invite", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/accept-invite",
+    status_code=status.HTTP_201_CREATED,
+    response_model=AcceptInviteResponse,
+)
 def accept_invite(
     payload: AcceptInviteRequest,
     db: Session = Depends(get_db),
 ):
     try:
-        user = auth_service.accept_invitation(
+        result = auth_service.accept_invitation(
             db,
             token=payload.token,
             password=payload.password,
@@ -275,7 +284,13 @@ def accept_invite(
             detail="An account with that email already exists.",
         )
     db.commit()
-    return {"status": "created", "user_id": user.id}
+    return AcceptInviteResponse(
+        user_id=result.user.id,
+        requires_mfa_setup=result.mfa_setup_token is not None,
+        mfa_setup_token=result.mfa_setup_token,
+        mfa_secret=result.mfa_secret,
+        provisioning_uri=result.provisioning_uri,
+    )
 
 
 @router.post("/mfa/enroll", response_model=MFAEnrollResponse)
@@ -305,6 +320,108 @@ def mfa_verify(
         )
     db.commit()
     return MFAVerifyResponse(recovery_codes=recovery)
+
+
+# ---------------------------------------------------------------------------
+# First-admin bootstrap (unauthenticated; gated by BOOTSTRAP_SETUP_KEY + the
+# "no owner/admin exists for this tenant yet" check inside the service).
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/bootstrap/begin",
+    response_model=BootstrapBeginResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def bootstrap_begin(
+    payload: BootstrapBeginRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    try:
+        result = auth_service.begin_bootstrap(
+            db,
+            setup_key=payload.setup_key,
+            tenant_slug=payload.tenant_slug,
+            tenant_name=payload.tenant_name,
+            email=str(payload.email),
+            password=payload.password,
+            display_name=payload.display_name,
+            ip=_client_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        )
+    except auth_service.BootstrapDisabled:
+        # Distinct from a bad key so operators can tell "I never configured
+        # this" apart from "I typed the key wrong" without leaking the actual
+        # configured value.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Bootstrap is disabled. Set BOOTSTRAP_SETUP_KEY to enable.",
+        )
+    except auth_service.InvalidCredentials:
+        db.commit()  # persist the security_event for the bad-key attempt
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid bootstrap setup key.",
+        )
+    except auth_service.BootstrapClosed:
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Bootstrap is closed: an owner or admin already exists for this tenant.",
+        )
+    except WeakPasswordError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        )
+    db.commit()
+    return BootstrapBeginResponse(
+        bootstrap_token=result.bootstrap_token,
+        mfa_secret=result.mfa_secret,
+        provisioning_uri=result.provisioning_uri,
+        user_id=result.user_id,
+    )
+
+
+@router.post("/bootstrap/complete")
+def bootstrap_complete(
+    payload: BootstrapCompleteRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    settings = get_settings()
+    try:
+        result = auth_service.complete_bootstrap(
+            db,
+            bootstrap_token=payload.bootstrap_token,
+            mfa_code=payload.mfa_code,
+            ip=_client_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        )
+    except auth_service.InvalidToken:
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired bootstrap token.",
+        )
+    except auth_service.InvalidCredentials:
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid MFA code."
+        )
+    db.commit()
+    body = BootstrapCompleteResponse(
+        access_token=result.access_token,
+        expires_in=settings.access_token_ttl_seconds,
+        recovery_codes=result.recovery_codes,
+    )
+    response = JSONResponse(status_code=200, content=body.model_dump())
+    _set_refresh_cookie(response, plaintext=result.refresh_token)
+    return response
 
 
 @router.get("/me", response_model=MeResponse)

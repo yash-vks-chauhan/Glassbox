@@ -48,6 +48,15 @@ export type AskResponse = {
   trust: Trust;
 };
 
+export type AskRuntimeStatus = {
+  mode: "production" | "blocked" | "local_evidence" | "demo" | "byo" | "router" | string;
+  production_mode: boolean;
+  active_route: string | null;
+  fallback_enabled: boolean;
+  status: "ready" | "blocked" | "degraded" | string;
+  message: string | null;
+};
+
 export type MetricsSummary = {
   total: number;
   hallucination_rate: number;
@@ -428,11 +437,38 @@ export function resetPassword(token: string, newPassword: string) {
   });
 }
 
+export type AcceptInviteResponse = {
+  status: "created";
+  user_id: string;
+  requires_mfa_setup: boolean;
+  // The following are only set when requires_mfa_setup is true (admin/owner
+  // roles). Hand mfa_setup_token + a current TOTP code back to
+  // /auth/bootstrap/complete to finish enrolment and receive a session.
+  mfa_setup_token?: string | null;
+  mfa_secret?: string | null;
+  provisioning_uri?: string | null;
+};
+
 export function acceptInvite(token: string, password: string, displayName?: string) {
-  return request<{ status: "created"; user_id: string }>("/auth/accept-invite", {
+  return request<AcceptInviteResponse>("/auth/accept-invite", {
     method: "POST",
     skipAuthRefresh: true,
     body: JSON.stringify({ token, password, display_name: displayName ?? null }),
+  });
+}
+
+export type BootstrapCompleteResponse = {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  recovery_codes: string[];
+};
+
+export function completeMfaSetup(setupToken: string, code: string) {
+  return request<BootstrapCompleteResponse>("/auth/bootstrap/complete", {
+    method: "POST",
+    skipAuthRefresh: true,
+    body: JSON.stringify({ bootstrap_token: setupToken, mfa_code: code }),
   });
 }
 
@@ -471,6 +507,10 @@ export function ask(input: {
       client_id: input.client_id ?? null,
     }),
   });
+}
+
+export function getAskRuntimeStatus() {
+  return request<AskRuntimeStatus>("/ask/runtime-status");
 }
 
 export type AskStreamEventName =
@@ -612,10 +652,11 @@ export function updateEscalation(
 }
 
 export type LlmStatus = {
+  local_evidence_mode: boolean;
   local_llm: boolean;
   configured_model: string;
   has_openrouter_key: boolean;
-  models_endpoint_reachable: boolean;
+  models_endpoint_reachable: boolean | null;
   configured_model_available: boolean | null;
   recommended_free_models: Array<{ id: string; name: string }>;
   error?: string;
@@ -637,6 +678,9 @@ export type ModelHealth = {
   blocked_reason: string | null;
   latency_ms: number | null;
   error: string | null;
+  chat_usable: boolean;
+  smoke_latency_ms: number | null;
+  smoke_error: string | null;
 };
 
 export type ProductionModelRouteStatus = {
@@ -648,6 +692,10 @@ export type ProductionModelRouteStatus = {
   production_eligible: boolean;
   blocked_reason: string | null;
   approved_for_inference: boolean;
+  ready_for_inference: boolean;
+  chat_usable: boolean;
+  smoke_latency_ms: number | null;
+  smoke_error: string | null;
   approval: {
     approved: boolean;
     reason: string;
@@ -663,11 +711,15 @@ export type ProductionModelStatus = {
   active_route: string | null;
   candidate_routes: string[];
   approved_routes: string[];
+  ready_routes: string[];
+  active_route_health: Record<string, unknown> | null;
   required_eval_questions: number;
   eval_freshness_hours: number;
   require_recent_eval: boolean;
   approved_models_env: string;
   blocked_reason: string | null;
+  local_evidence_mode: boolean;
+  model_gate_required: boolean;
   routes: ProductionModelRouteStatus[];
 };
 
@@ -774,9 +826,20 @@ export function getModelLeaderboard(limit = 40, determinismRuns = 2) {
   );
 }
 
-export function runModelEval(limit = 40, determinismRuns = 2, gate: "fast" | "full" = "fast") {
+export function runModelEval(
+  limit = 40,
+  determinismRuns = 2,
+  gate: "fast" | "full" = "fast",
+  routes?: string[],
+) {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    determinism_runs: String(determinismRuns),
+    gate,
+  });
+  if (routes?.length) params.set("routes", routes.join(","));
   return request<ModelLeaderboard>(
-    `/models/eval-runs?limit=${limit}&determinism_runs=${determinismRuns}&gate=${gate}`,
+    `/models/eval-runs?${params.toString()}`,
     { method: "POST" },
   );
 }

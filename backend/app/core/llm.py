@@ -6,7 +6,9 @@ from collections import defaultdict
 from app.config import get_settings
 from app.core.model_router import (
     LLMUnavailable,
+    RoutedChatResult,
     chat_with_router,
+    chat_with_router_result,
     has_usable_openrouter_key,
 )
 
@@ -17,6 +19,7 @@ def chat(
     model: str | None = None,
     api_key: str | None = None,
     enforce_production_gate: bool = True,
+    json_mode: bool = False,
 ) -> str:
     return chat_with_router(
         messages,
@@ -25,6 +28,26 @@ def chat(
         model=model,
         api_key=api_key,
         enforce_production_gate=enforce_production_gate,
+        json_mode=json_mode,
+    )
+
+
+def chat_result(
+    messages: list[dict[str, str]],
+    temperature: float | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+    enforce_production_gate: bool = True,
+    json_mode: bool = False,
+) -> RoutedChatResult:
+    return chat_with_router_result(
+        messages,
+        local_chat=_local_chat,
+        temperature=temperature if temperature is not None else get_settings().llm_temperature,
+        model=model,
+        api_key=api_key,
+        enforce_production_gate=enforce_production_gate,
+        json_mode=json_mode,
     )
 
 
@@ -83,10 +106,11 @@ def _local_answer(prompt: str) -> str:
     q = question.lower()
     sources = _source_map(prompt)
     all_text = " ".join(" ".join(parts) for parts in sources.values()).lower()
+    wants_json = "return only valid json" in prompt.lower() or '"insufficient_context"' in prompt
 
     if any(term in q for term in ["capital gains", "tax rate", "germany tax"]):
         if "capital gains" not in all_text and "tax rate" not in all_text:
-            return "INSUFFICIENT_CONTEXT"
+            return _local_json_response([]) if wants_json else "INSUFFICIENT_CONTEXT"
 
     question_client_id = _id_in_question(question, "C")
     client_id = question_client_id if question_client_id in sources else _first_source_id(sources, prefix="C")
@@ -188,7 +212,33 @@ def _local_answer(prompt: str) -> str:
             if sentence:
                 claims.append(f"{sentence}. [{source_id}]")
 
-    return "\n".join(dict.fromkeys(claims)) if claims else "INSUFFICIENT_CONTEXT"
+    deduped = list(dict.fromkeys(claims))
+    if wants_json:
+        return _local_json_response(deduped)
+    return "\n".join(deduped) if deduped else "INSUFFICIENT_CONTEXT"
+
+
+def _local_json_response(claim_lines: list[str]) -> str:
+    import json
+
+    claims: list[dict[str, str]] = []
+    for line in claim_lines:
+        match = re.search(r"^(?P<text>.*?)\s*\[(?P<source>[A-Z0-9_-]+)\]\s*$", line.strip())
+        if not match:
+            continue
+        claims.append(
+            {
+                "text": match.group("text").strip(),
+                "source_id": match.group("source").strip(),
+            }
+        )
+    return json.dumps(
+        {
+            "insufficient_context": not bool(claims),
+            "claims": claims,
+        },
+        separators=(",", ":"),
+    )
 
 
 def _first_source_id(sources: dict[str, list[str]], prefix: str) -> str | None:

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import {
   Activity,
   ArchiveRestore,
@@ -18,6 +19,7 @@ import {
 
 import { cn } from "@/lib/utils";
 import { hasAtLeastRole, useAuth, type AuthUser } from "@/lib/auth-context";
+import { getAskRuntimeStatus, type AskRuntimeStatus } from "@/lib/api";
 
 type NavItem = {
   href: string;
@@ -56,10 +58,36 @@ const GROUP_LABELS: Record<NavItem["group"], string> = {
 export function SidebarNav() {
   const pathname = usePathname() || "";
   const { role } = useAuth();
+  const [runtime, setRuntime] = useState<AskRuntimeStatus | null>(null);
+  const [runtimeError, setRuntimeError] = useState(false);
   // Filter once per render — the role rarely changes and the list is small.
   const visible = NAV.filter((item) => !item.requires || hasAtLeastRole(role, item.requires));
   const grouped: Record<NavItem["group"], NavItem[]> = { work: [], oversight: [], system: [] };
   for (const item of visible) grouped[item.group].push(item);
+
+  useEffect(() => {
+    let active = true;
+    async function load() {
+      try {
+        const next = await getAskRuntimeStatus();
+        if (!active) return;
+        setRuntime(next);
+        setRuntimeError(false);
+      } catch {
+        if (!active) return;
+        setRuntime(null);
+        setRuntimeError(true);
+      }
+    }
+    load();
+    const timer = window.setInterval(load, 30_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const runtimeTone = runtimeToneFor(runtime, runtimeError);
 
   return (
     <nav className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-2">
@@ -93,22 +121,51 @@ export function SidebarNav() {
         </div>
       ))}
       <div className="mt-auto px-2 pb-3">
-        <div className="flex items-center gap-2 rounded-md border border-sidebar-border/60 bg-sidebar/80 px-2.5 py-2 text-xs text-muted-foreground">
+        <div
+          data-testid="runtime-status-pill"
+          className={cn(
+            "flex items-center gap-2 rounded-md border border-sidebar-border/60 bg-sidebar/80 px-2.5 py-2 text-xs",
+            runtimeTone.className,
+          )}
+          title={runtime?.message ?? (runtimeError ? "Runtime status unavailable." : "Loading runtime status.")}
+        >
           <span className="relative flex h-2 w-2">
             <span
               className="absolute inset-0 animate-ping rounded-full opacity-60"
-              style={{ backgroundColor: "hsl(var(--state-grounded))" }}
+              style={{ backgroundColor: runtimeTone.color }}
             />
             <span
               className="relative inline-flex h-2 w-2 rounded-full"
-              style={{ backgroundColor: "hsl(var(--state-grounded))" }}
+              style={{ backgroundColor: runtimeTone.color }}
             />
           </span>
-          <span className="truncate">All controls operational</span>
+          <span className="truncate">{runtimeLabel(runtime, runtimeError)}</span>
         </div>
       </div>
     </nav>
   );
+}
+
+function runtimeLabel(runtime: AskRuntimeStatus | null, error: boolean) {
+  if (error) return "Runtime status unavailable";
+  if (!runtime) return "Checking inference route";
+  if (runtime.mode === "production" && runtime.status === "ready") return "Production inference ready";
+  if (runtime.mode === "local_evidence") return "Local evidence mode ready";
+  if (runtime.mode === "blocked") return "Production inference blocked";
+  if (runtime.mode === "demo") return "Demo inference active";
+  if (runtime.mode === "byo") return "Personal model route active";
+  if (runtime.status === "degraded") return "Inference degraded";
+  return "Model router ready";
+}
+
+function runtimeToneFor(runtime: AskRuntimeStatus | null, error: boolean) {
+  if (error || runtime?.status === "blocked") {
+    return { className: "text-flagged", color: "hsl(var(--state-flagged))" };
+  }
+  if (runtime?.status === "degraded") {
+    return { className: "text-fallback", color: "hsl(var(--state-fallback))" };
+  }
+  return { className: "text-muted-foreground", color: "hsl(var(--state-grounded))" };
 }
 
 export function SidebarBrand() {

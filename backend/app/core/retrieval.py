@@ -17,7 +17,7 @@ from app.core.types import RetrievedChunk
 # with each caller's `glassbox_t_{tenant_id}` collection.
 SHARED_TENANT_SENTINEL = ""
 
-_RETRIEVAL_CACHE: dict[tuple[str, str, str, str], tuple[float, list[RetrievedChunk]]] = {}
+_RETRIEVAL_CACHE: dict[tuple[str, str, int, str, str], tuple[float, list[RetrievedChunk]]] = {}
 
 
 def _store_paths() -> tuple[Path, Path]:
@@ -57,9 +57,15 @@ def _load_index() -> tuple[list[dict[str, object]], np.ndarray]:
 def _matches_client(chunk: dict[str, object], client_id: str | None) -> bool:
     if client_id is None:
         return True
-    if chunk.get("source_type") != "ips":
+    source_type = chunk.get("source_type")
+    if source_type not in {"ips", "portfolio"}:
         return True
-    return chunk.get("source_id") == client_id
+    if chunk.get("source_id") == client_id:
+        return True
+    metadata = chunk.get("metadata")
+    if isinstance(metadata, dict):
+        return metadata.get("client_id") == client_id
+    return False
 
 
 def _matches_tenant(chunk: dict[str, object], tenant_id: str | None) -> bool:
@@ -91,6 +97,7 @@ def retrieve(
     cache_key = (
         tenant_id or "",
         client_id or "",
+        k,
         _normalize_question(question),
         _corpus_version(),
     )
@@ -181,7 +188,15 @@ def _expanded_question(question: str) -> str:
     if "suitable" in lower or "suitability" in lower:
         additions.append("risk profile suitability recommendation REG-SUITABILITY")
     if "fund" in lower:
-        additions.append("factsheet risk level asset class sector region")
+        additions.append("factsheet risk level asset class sector region liquidity")
+    if _needs_portfolio_source(question, _client_id(question)):
+        additions.append("portfolio snapshot current holdings current exposure current liquid assets post trade")
+    if _is_tax_guidance_question(question):
+        additions.append("approved tax evidence jurisdictional tax memo Tax Desk")
+    if _is_jurisdiction_question(question):
+        additions.append("client IPS jurisdiction cross-border compliance review")
+    if "exception" in lower or "verbally approves" in lower or re.search(r"\bwaiv\w*\b", lower):
+        additions.append("mandate exception process compliance approval IPS control")
     return f"{question} {' '.join(additions)}".strip()
 
 
@@ -219,9 +234,33 @@ def _metadata_boost(
     boost = 0.0
     if client_id and source_type == "ips" and source_id == client_id:
         boost += 0.08
+    if client_id and source_type == "portfolio" and _portfolio_source_id(client_id) == source_id:
+        boost += 0.08
+        if _needs_portfolio_source(question, client_id):
+            boost += 0.14
+        if any(term in lower_text for term in ["current", "portfolio snapshot", "exposure", "liquid assets"]):
+            boost += 0.04
     for fund_id in re.findall(r"\bF\d{3}\b", question, flags=re.I):
         if source_id == fund_id.upper():
             boost += 0.08
+            if source_type == "factsheet" and (
+                _is_fund_transaction(question) or _is_source_checklist_question(question)
+                or any(term in lower_q for term in ["recommend", "suitable", "suitability"])
+            ):
+                if any(term in lower_text for term in _FACTSHEET_HINT_TERMS):
+                    boost += 0.10
+    if _is_tax_guidance_question(question) and source_id == "REG-TAX-GUIDANCE":
+        boost += 0.16
+    if _is_jurisdiction_question(question) and source_id == "REG-JURISDICTION":
+        boost += 0.14
+    if ("exception" in lower_q or "verbally approves" in lower_q or re.search(r"\bwaiv\w*\b", lower_q)) and source_id == "REG-EXCEPTIONS":
+        boost += 0.14
+    if _is_fund_transaction(question) and source_type == "ips":
+        if any(term in lower_text for term in ["risk profile", "may hold", "human review", "liquid", "single position"]):
+            boost += 0.08
+    if _is_source_checklist_question(question) and source_type == "ips":
+        if any(term in lower_text for term in ["risk profile", "single position", "liquid", "must not", "suitability constraints"]):
+            boost += 0.10
     if any(term in lower_q for term in ["recommend", "suitable", "suitability"]):
         if source_id == "REG-SUITABILITY":
             boost += 0.05
@@ -247,6 +286,14 @@ def _selection_reason(
         return "mentioned fund factsheet"
     if source_id == "REG-SUITABILITY":
         return "suitability guidance"
+    if source_id == "REG-TAX-GUIDANCE":
+        return "tax evidence handling"
+    if source_id == "REG-JURISDICTION":
+        return "jurisdiction review policy"
+    if source_id == "REG-EXCEPTIONS":
+        return "mandate exception process"
+    if source_type == "portfolio":
+        return "matching portfolio snapshot"
     return "semantic relevance"
 
 
@@ -264,6 +311,25 @@ def _ensure_required_sources(
     augmented = list(results)
     for source_id in required:
         if source_id in existing:
+            if (
+                _is_source_checklist_question(question)
+                or _is_suitability_or_risk_question(question)
+                or _is_jurisdiction_question(question)
+            ):
+                for candidate in _best_required_chunks(question, source_id, index_chunks, limit=2):
+                    chunk, score = candidate
+                    augmented.append(
+                        RetrievedChunk(
+                            source_id=str(chunk["source_id"]),
+                            source_type=str(chunk["source_type"]),
+                            chunk_text=str(chunk["chunk_text"]),
+                            score=float(max(score, 0.05)),
+                            file=str(chunk.get("file") or ""),
+                            chunk_index=int(chunk.get("chunk_index") or 0),
+                            source_version=_source_version(chunk),
+                            selected_reason=f"required source fallback: {_selection_reason(question, client_id, chunk)}",
+                        )
+                    )
             continue
         candidate = _best_required_chunk(question, source_id, index_chunks)
         if candidate is None:
@@ -328,15 +394,19 @@ def _required_source_ids(question: str, client_id: str | None) -> list[str]:
             "exposure",
             "allocate",
             "allocation",
+            "jurisdiction",
+            "cross-border",
             "%",
             "percent",
         ]
     )
     asks_suitability = any(
         term in lower for term in ["suitable", "suitability", "recommend", "recommending"]
-    )
+    ) or _is_fund_transaction(question)
     if mentioned_client and (asks_mandate or asks_suitability):
         required.append(mentioned_client)
+    if _needs_portfolio_source(question, mentioned_client):
+        required.append(_portfolio_source_id(mentioned_client))
     required.extend(mentioned_funds)
     asks_risk_guidance = (
         ("risk" in lower and "sector" in lower)
@@ -344,6 +414,14 @@ def _required_source_ids(question: str, client_id: str | None) -> list[str]:
     )
     if asks_suitability or asks_risk_guidance:
         required.append("REG-SUITABILITY")
+    if _is_tax_guidance_question(question):
+        required.append("REG-TAX-GUIDANCE")
+    if _is_jurisdiction_question(question):
+        if mentioned_client:
+            required.append(mentioned_client)
+        required.append("REG-JURISDICTION")
+    if "exception" in lower or "verbally approves" in lower or re.search(r"\bwaiv\w*\b", lower):
+        required.append("REG-EXCEPTIONS")
     return list(dict.fromkeys(required))
 
 
@@ -352,9 +430,20 @@ def _best_required_chunk(
     source_id: str,
     chunks: list[dict[str, object]],
 ) -> tuple[dict[str, object], float] | None:
+    ranked = _best_required_chunks(question, source_id, chunks, limit=1)
+    return ranked[0] if ranked else None
+
+
+def _best_required_chunks(
+    question: str,
+    source_id: str,
+    chunks: list[dict[str, object]],
+    *,
+    limit: int,
+) -> list[tuple[dict[str, object], float]]:
     candidates = [chunk for chunk in chunks if str(chunk.get("source_id") or "") == source_id]
     if not candidates:
-        return None
+        return []
     ranked = sorted(
         (
             (
@@ -369,7 +458,7 @@ def _best_required_chunk(
         key=lambda item: item[1],
         reverse=True,
     )
-    return ranked[0]
+    return ranked[:limit]
 
 
 def _required_chunk_hint_score(question: str, chunk: dict[str, object]) -> float:
@@ -389,6 +478,27 @@ def _required_chunk_hint_score(question: str, chunk: dict[str, object]) -> float
             score = max(score, 0.95)
         if "risk" in lower_q and "risk profile" in lower_text:
             score = max(score, 0.95)
+    if source_id == "REG-TAX-GUIDANCE":
+        if _is_tax_guidance_question(question) and any(
+            term in lower_text for term in ["approved jurisdictional tax memo", "tax desk", "must not quote"]
+        ):
+            score = max(score, 0.96)
+    if source_id == "REG-JURISDICTION":
+        if _is_jurisdiction_question(question) and any(
+            term in lower_text for term in ["client's approved ips", "cross-border", "not documented"]
+        ):
+            score = max(score, 0.95)
+        if "undocumented" in lower_q and "not documented" in lower_text:
+            score = max(score, 0.98)
+    if source_id == "REG-EXCEPTIONS":
+        if "exception" in lower_q or "verbally approves" in lower_q or re.search(r"\bwaiv\w*\b", lower_q):
+            if any(term in lower_text for term in ["verbal approval", "compliance approval", "ips control"]):
+                score = max(score, 0.95)
+    if source_id.startswith("PORTFOLIO-"):
+        if _needs_portfolio_source(question, None) and any(
+            term in lower_text for term in ["portfolio snapshot", "current", "exposure", "liquid assets"]
+        ):
+            score = max(score, 0.95)
     if any(term in lower_q for term in ["single position", "concentration", "%", "percent"]):
         if "single position" in lower_text or "portfolio value" in lower_text:
             score = max(score, 0.9)
@@ -398,19 +508,45 @@ def _required_chunk_hint_score(question: str, chunk: dict[str, object]) -> float
     if any(term in lower_q for term in ["suitable", "suitability", "recommend"]):
         if "suitability" in lower_text or "recommendation" in lower_text:
             score = max(score, 0.9)
+    if str(chunk.get("source_type") or "") == "factsheet" and (
+        _is_fund_transaction(question) or _is_source_checklist_question(question)
+        or any(term in lower_q for term in ["recommend", "suitable", "suitability"])
+    ):
+        if _is_suitability_or_risk_question(question) and "risk level" in lower_text:
+            score = max(score, 0.98)
+        if _is_source_checklist_question(question) and (
+            "risk level" in lower_text or "invests" in lower_text
+        ):
+            score = max(score, 0.97)
+        if _is_source_checklist_question(question) and (
+            "technology" in lower_text or "concentrated exposure" in lower_text
+        ):
+            score = max(score, 0.975)
+        if any(term in lower_text for term in _FACTSHEET_HINT_TERMS):
+            score = max(score, 0.93)
+    if _is_fund_transaction(question) and str(chunk.get("source_type") or "") == "ips":
+        if any(term in lower_text for term in ["risk profile", "may hold", "human review"]):
+            score = max(score, 0.92)
+    if _is_suitability_or_risk_question(question) and str(chunk.get("source_type") or "") == "ips":
+        if "risk profile" in lower_text:
+            score = max(score, 0.94)
+    if _is_jurisdiction_question(question) and str(chunk.get("source_type") or "") == "ips":
+        if "governed by" in lower_text or "jurisdiction" in lower_text:
+            score = max(score, 0.97)
+    if _is_source_checklist_question(question) and str(chunk.get("source_type") or "") == "ips":
+        if any(term in lower_text for term in ["risk profile", "single position", "liquid", "must not"]):
+            score = max(score, 0.92)
     return score
 
 
 def _dedupe_chunks(chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
-    seen: set[tuple[str, str]] = set()
-    deduped: list[RetrievedChunk] = []
+    by_key: dict[tuple[str, str], RetrievedChunk] = {}
     for chunk in chunks:
         key = (chunk.source_id, re.sub(r"\s+", " ", chunk.chunk_text.strip().lower()))
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(chunk)
-    return deduped
+        existing = by_key.get(key)
+        if existing is None or chunk.score > existing.score:
+            by_key[key] = chunk
+    return list(by_key.values())
 
 
 def _source_version(chunk: dict[str, object]) -> str | None:
@@ -428,8 +564,92 @@ def _client_id(question: str) -> str | None:
     return match.group(1).upper() if match else None
 
 
+def _portfolio_source_id(client_id: str | None) -> str:
+    return f"PORTFOLIO-{client_id}" if client_id else ""
+
+
 def _fund_ids(question: str) -> list[str]:
     return list(dict.fromkeys(match.upper() for match in re.findall(r"\bF\d{3}\b", question, flags=re.I)))
+
+
+def _is_fund_transaction(question: str) -> bool:
+    return bool(
+        re.search(r"\b(can|may|should|would)\b", question, re.I)
+        and re.search(r"\b(buy|hold|invest|put|allocate|count|use|treat)\b", question, re.I)
+        and (re.search(r"\bF\d{3}\b", question, re.I) or re.search(r"\bhigh-risk equity fund\b", question, re.I))
+    )
+
+
+_FACTSHEET_HINT_TERMS = (
+    "risk level",
+    "concentrated",
+    "technology",
+    "equity securities",
+    "government bonds",
+    "government securities",
+    "short-duration",
+    "cash-equivalent",
+    "money market",
+    "daily liquidity",
+    "private credit",
+    "quarterly liquidity",
+    "liquid within 30 days",
+    "capital preservation",
+)
+
+
+def _is_tax_guidance_question(question: str) -> bool:
+    q = question.lower()
+    if re.search(r"\b(tax|tax-rate|tax rate|capital gains|vat)\b", q):
+        return bool(
+            re.search(
+                r"\b(source|evidence|memo|approved|before|support|what should|do when|handling|cite|advisor)\b",
+                q,
+            )
+        )
+    return False
+
+
+def _is_jurisdiction_question(question: str) -> bool:
+    return bool(
+        re.search(r"\b(jurisdiction|jurisdictions|cross-border|country|countries)\b", question, re.I)
+        and re.search(r"\b(C\d{3}|client|ips|constraint|govern|review|documented)\b", question, re.I)
+    )
+
+
+def _is_source_checklist_question(question: str) -> bool:
+    return bool(
+        re.search(r"\b(which|what)\s+sources?\b|\bsource checklist\b|\bwhat evidence\b", question, re.I)
+        and re.search(r"\b(cite|cited|recommend|recommending|advisor|evidence)\b", question, re.I)
+    )
+
+
+def _is_suitability_or_risk_question(question: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(suitable|suitability|recommend\w*|risk|risk evidence|risk profile|risk level|high risk|low risk|asset class)\b",
+            question,
+            re.I,
+        )
+        or _is_fund_transaction(question)
+    )
+
+
+def _needs_portfolio_source(question: str, client_id: str | None) -> bool:
+    if not client_id:
+        return False
+    q = question.lower()
+    return bool(
+        re.search(
+            r"\b(current|existing|portfolio|holding|holdings|post[- ]trade|after|before recommending|recommend\w*|add|breach\w*)\b",
+            q,
+        )
+        and re.search(
+            r"\b(client|C\d{3}|technology|sector|liquid|liquidity|F\d{3}|suitable|recommend\w*)\b",
+            question,
+            re.I,
+        )
+    )
 
 
 def _corpus_version() -> str:

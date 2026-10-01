@@ -108,6 +108,7 @@ def _classify(path: Path) -> tuple[str, str, str]:
       corpus/shared/regulations/*.md     -> shared regulation
       corpus/shared/factsheets/*.md      -> shared factsheet
       corpus/tenants/{tenant_id}/ips/*   -> tenant-owned IPS
+      corpus/tenants/{tenant_id}/portfolio/* -> tenant-owned portfolio snapshot
 
     A file that doesn't match any of these patterns is skipped by the caller.
     """
@@ -130,6 +131,9 @@ def _classify(path: Path) -> tuple[str, str, str]:
     if len(rel) >= 4 and rel[0] == "tenants" and rel[2] == "ips":
         tenant_id = rel[1]
         return ("ips", tenant_id, tenant_collection(tenant_id))
+    if len(rel) >= 4 and rel[0] == "tenants" and rel[2] == "portfolio":
+        tenant_id = rel[1]
+        return ("portfolio", tenant_id, tenant_collection(tenant_id))
 
     return ("unknown", SHARED_TENANT_SENTINEL, SHARED_COLLECTION)
 
@@ -139,6 +143,7 @@ def _resolved_source_id(path: Path, metadata: dict[str, object], source_type: st
         "ips": "client_id",
         "factsheet": "fund_id",
         "regulation": "regulation_id",
+        "portfolio": "portfolio_id",
     }.get(source_type)
     candidate = str(metadata.get(key)) if key and metadata.get(key) else path.stem
     return assert_safe_source_id(candidate)
@@ -165,6 +170,9 @@ def build_chunks() -> list[dict[str, object]]:
             ips_dir = tenant_dir / "ips"
             if ips_dir.is_dir():
                 tenant_files.extend(sorted(ips_dir.glob("*.md")))
+            portfolio_dir = tenant_dir / "portfolio"
+            if portfolio_dir.is_dir():
+                tenant_files.extend(sorted(portfolio_dir.glob("*.md")))
 
     chunks: list[dict[str, object]] = []
     for path in shared_files + tenant_files:

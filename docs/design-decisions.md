@@ -14,12 +14,16 @@ harder to audit because the system can appear to know something without showing 
 source document. GlassBox keeps the language model generic and forces answers
 through retrieval, citations, claim verification, and refusal logic.
 
-## Local deterministic mode
+## Private local evidence mode
 
-The local implementation includes `GLASSBOX_LOCAL_LLM=1`, a deterministic offline
-LLM substitute. This lets the project run on a MacBook without paid APIs or rate
-limits. Turning `GLASSBOX_LOCAL_LLM=0` makes the backend use OpenRouter, and if no
-key is available the offline fallback classifier path is exercised.
+The product path is `GLASSBOX_LOCAL_EVIDENCE_MODE=1`. It is not a pretend LLM and
+not a fine-tuned model. It answers from retrieved IPS, factsheet, and regulatory
+snippets using deterministic policy extraction, claim verification, advisor-safe
+rendering, and audit replay.
+
+The older `GLASSBOX_LOCAL_LLM=1` route remains a demo/fallback substitute. It is
+useful for outage handling and compatibility tests, but it is not the primary
+product inference route.
 
 ## Trust models are small on purpose
 

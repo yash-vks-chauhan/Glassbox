@@ -26,3 +26,6 @@ frontend/test-results/
 # Logs
 *.log
 .playwright-cli/
+
+# Claude Code local settings (machine-specific permissions)
+.claude/

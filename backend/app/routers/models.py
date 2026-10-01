@@ -56,7 +56,7 @@ def _eval_limit(limit: int, gate: str | None) -> int:
 
 @router.get("/leaderboard", response_model=ModelLeaderboard)
 def model_leaderboard(
-    limit: int = Query(default=40, ge=8, le=164),
+    limit: int = Query(default=40, ge=8, le=500),
     gate: str | None = Query(default=None, pattern="^(fast|full)$"),
     determinism_runs: int = Query(default=2, ge=2, le=5),
     persist: bool = Query(default=False),
@@ -78,7 +78,7 @@ def model_leaderboard(
 
 @router.post("/eval-runs", response_model=ModelLeaderboard)
 def run_model_eval(
-    limit: int = Query(default=40, ge=8, le=164),
+    limit: int = Query(default=40, ge=8, le=500),
     gate: str | None = Query(default="fast", pattern="^(fast|full)$"),
     determinism_runs: int = Query(default=2, ge=2, le=5),
     routes: str | None = Query(default=None),

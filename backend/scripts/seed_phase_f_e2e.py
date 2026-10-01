@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import json
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.core.auth import mfa
 from app.core.auth.passwords import hash_password
 from app.db import SessionLocal, init_db
-from app.models_db import DEMO_TENANT_ID, User
+from app.models_db import DEMO_TENANT_ID, RateLimitBucket, User
 
 
 PASSWORD = "Phase-F-Sup3rSecur3!"
@@ -51,6 +51,9 @@ def upsert_user(*, email: str, role: str, mfa_enrolled: bool = False) -> None:
 
 def main() -> None:
     init_db()
+    with SessionLocal() as db:
+        db.execute(delete(RateLimitBucket))
+        db.commit()
     upsert_user(email=USERS["advisor"], role="advisor")
     upsert_user(email=USERS["admin"], role="admin", mfa_enrolled=True)
     print(
