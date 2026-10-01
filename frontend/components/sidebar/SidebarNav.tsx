@@ -170,7 +170,7 @@ function runtimeToneFor(runtime: AskRuntimeStatus | null, error: boolean) {
 
 export function SidebarBrand() {
   const { user } = useAuth();
-  const tenant = user?.tenant_slug ?? "Audit-grade AI";
+  const tenant = user?.tenant_name || user?.tenant_slug || "Audit-grade AI";
   return (
     <div className="px-3 pt-4">
       <Link href="/app/home" className="flex items-center gap-2.5">

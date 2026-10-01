@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from uuid import uuid4
 
 import pytest
@@ -948,7 +947,7 @@ def test_p12c_advisor_composer_and_escalation_are_product_ready():
         payload = asked.json()
         answer = payload["answer"] or ""
         assert payload["outcome"] == "flagged"
-        assert answer.startswith("No. I would not proceed")
+        assert answer.startswith("No. Do not proceed as proposed.")
         assert "Reason:" in answer
         assert "Action:" in answer
         assert "as an ai" not in answer.lower()

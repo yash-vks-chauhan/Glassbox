@@ -35,6 +35,7 @@ import {
   listByoKeys,
   saveByoKey,
   deleteByoKey,
+  getSystemInfo,
   type AuditVerifyReport,
   type ByoKey,
   type LlmStatus,
@@ -42,6 +43,7 @@ import {
   type ModelHealth,
   type ModelLeaderboard,
   type ProductionModelStatus,
+  type SystemInfo,
 } from "@/lib/api";
 import { UsersCard } from "@/components/admin/UsersCard";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -716,23 +718,7 @@ export default function AdminPage() {
             )}
           </Section>
 
-          <Section icon={Sliders} title="Guardrails">
-            <ul className="space-y-3 text-sm">
-              <Guardrail label="Refuse on missing source" defaultOn />
-              <Guardrail label="Chain-of-Verification pass" defaultOn />
-              <Guardrail label="Log every claim drop" defaultOn />
-              <Guardrail label="Suggest escalation on flags" defaultOn />
-              <Guardrail label="Allow advisor BYO key" />
-            </ul>
-          </Section>
-
-          <Section icon={Settings2} title="System">
-            <dl className="space-y-3 text-sm">
-              <Row label="Region" value="EU-west · Frankfurt" />
-              <Row label="Audit retention" value="7 years" />
-              <Row label="Rate limit" value="60 req / advisor / min" />
-            </dl>
-          </Section>
+          <SystemCards />
         </aside>
       </div>
     </PageContainer>
@@ -1015,14 +1001,81 @@ function FormRow({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-function Guardrail({ label, defaultOn = false }: { label: string; defaultOn?: boolean }) {
+/**
+ * Guardrails and system facts as the backend reports them. Nothing here is
+ * editable in the browser: each guardrail names the environment variable
+ * that controls it, or is always on.
+ */
+function SystemCards() {
+  const [info, setInfo] = useState<SystemInfo | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getSystemInfo()
+      .then(setInfo)
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load system info"));
+  }, []);
+
+  if (error) {
+    return (
+      <Section icon={Settings2} title="System">
+        <p className="text-sm text-destructive">{error}</p>
+      </Section>
+    );
+  }
+  if (!info) {
+    return (
+      <Section icon={Settings2} title="System">
+        <Skeleton className="h-40 w-full rounded-md" />
+      </Section>
+    );
+  }
   return (
-    <li className="flex items-center justify-between gap-3 rounded-md border bg-background/60 px-3 py-2">
-      <span>
-        {label}
-        <span className="ml-1.5 text-xs text-muted-foreground">(fixed)</span>
-      </span>
-      <Switch defaultChecked={defaultOn} disabled />
-    </li>
+    <>
+      <Section icon={Sliders} title="Guardrails">
+        <ul className="space-y-2 text-sm">
+          {info.guardrails.map((g) => (
+            <li
+              key={g.key}
+              className="flex items-start justify-between gap-3 rounded-md border bg-background/60 px-3 py-2"
+            >
+              <span className="min-w-0">
+                <span className="block">{g.label}</span>
+                <span className="block text-xs text-muted-foreground">
+                  {[g.detail, g.setting ? `set via ${g.setting}` : "always on"]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+              </span>
+              <span
+                className={cn(
+                  "mt-0.5 shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em]",
+                  g.enabled
+                    ? "bg-[hsl(var(--state-grounded)/0.12)] text-[hsl(var(--state-grounded))]"
+                    : "bg-muted text-muted-foreground",
+                )}
+              >
+                {g.enabled ? "On" : "Off"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </Section>
+
+      <Section icon={Settings2} title="System">
+        <dl className="space-y-3 text-sm">
+          <Row label="Version" value={info.version} />
+          <Row label="Environment" value={info.environment} />
+          <Row label="Database" value={info.database} />
+          <Row label="Inference" value={info.inference_route ?? info.inference_mode} />
+          <Row label="Embeddings" value={info.embedding_backend} />
+          <Row
+            label="Rate limits / min"
+            value={`ask ${info.rate_limits.ask_per_min} · auth ${info.rate_limits.auth_per_min} · other ${info.rate_limits.default_per_min}`}
+          />
+          <Row label="Audit retention" value={info.audit_retention} />
+        </dl>
+      </Section>
+    </>
   );
 }

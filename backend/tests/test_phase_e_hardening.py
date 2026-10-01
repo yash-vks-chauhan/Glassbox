@@ -32,8 +32,6 @@ from app.config import get_settings
 from app.core.auth import service as auth_service
 from app.core.auth.tokens import issue_access_token
 from app.core.security.audit_hash import (
-    canonical_decision_payload,
-    compute_row_hash,
     verify_chain,
 )
 from app.core.security.encryption import decrypt, encrypt
@@ -44,7 +42,6 @@ from app.models_db import (
     DEMO_TENANT_ID,
     ByoKey,
     ClientRecord,
-    Decision,
     User,
 )
 
@@ -336,7 +333,7 @@ def test_hash_chain_per_tenant_independent():
         other_id = t.id
 
     from app.core.provenance import record_decision
-    from app.core.types import ParsedClaim, RetrievedChunk as ChunkData
+    from app.core.types import ParsedClaim
 
     with SessionLocal() as db:
         for tid in (DEMO_TENANT_ID, other_id):
@@ -511,7 +508,7 @@ def test_byo_key_endpoint_round_trip_never_returns_plaintext(client, no_auth_ove
     """no_auth_override so the JWT we mint actually drives current_user.
     Without it, the conftest default-admin override binds the BYO key to
     the persistent demo-admin row instead of our Phase E test user."""
-    user = _make_user(role="advisor")
+    user = _make_user(role="admin")
     headers = _bearer(user)
 
     plaintext = "sk-or-test-redacted-1234567890"
@@ -569,6 +566,42 @@ def test_byo_key_upsert_overwrites_existing(client):
     rows = [r for r in listing if r["provider"] == "openrouter"]
     assert len(rows) == 1
     assert rows[0]["last4"] == "2222"
+
+
+def test_byo_keys_are_admin_only_unless_policy_allows_advisors(
+    client, no_auth_override, monkeypatch
+):
+    advisor = _make_user(role="advisor")
+    payload = {"provider": "openrouter", "api_key": "sk-or-advisor-key-1234"}
+    denied = client.post("/users/me/byo-keys", headers=_bearer(advisor), json=payload)
+    assert denied.status_code == 403
+
+    monkeypatch.setenv("ALLOW_ADVISOR_BYO_KEYS", "1")
+    get_settings.cache_clear()
+    allowed = client.post("/users/me/byo-keys", headers=_bearer(advisor), json=payload)
+    assert allowed.status_code == 201, allowed.text
+
+
+def test_admin_system_reports_the_live_configuration(client, no_auth_override, monkeypatch):
+    monkeypatch.setenv("ALLOW_ADVISOR_BYO_KEYS", "1")
+    monkeypatch.setenv("VERIFY_MODE", "heuristic")
+    get_settings.cache_clear()
+    admin = _make_user(role="admin")
+
+    res = client.get("/admin/system", headers=_bearer(admin))
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["environment"] == "development"
+    assert body["database"] == engine.dialect.name
+    assert body["rate_limits"]["ask_per_min"] == get_settings().rate_limit_ask_per_min
+    guardrails = {item["key"]: item for item in body["guardrails"]}
+    assert guardrails["advisor_byo_keys"]["enabled"] is True
+    assert guardrails["claim_verification"]["detail"] == "mode: heuristic"
+
+
+def test_admin_system_is_admin_only(client, no_auth_override):
+    advisor = _make_user(role="advisor")
+    assert client.get("/admin/system", headers=_bearer(advisor)).status_code == 403
 
 
 # ---------------------------------------------------------------------------

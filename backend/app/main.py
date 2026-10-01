@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app import __version__
 from app.config import assert_secrets_safe_for_mode, get_settings
 from app.core.security.body_size import BodySizeLimitMiddleware
 from app.core.security.headers import SecurityHeadersMiddleware
@@ -12,6 +13,7 @@ from app.core.security.logging import RequestContextMiddleware, configure_loggin
 from app.core.security.rate_limit import RateLimitMiddleware
 from app.db import init_db
 from app.routers import (
+    admin_system,
     admin_users,
     ask,
     audit,
@@ -23,6 +25,7 @@ from app.routers import (
     llm_status,
     metrics,
     models,
+    public,
 )
 
 
@@ -41,7 +44,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="GlassBox", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="GlassBox", version=__version__, lifespan=lifespan)
 
 
 # ---------------------------------------------------------------------------
@@ -106,4 +109,6 @@ app.include_router(determinism.router)
 app.include_router(llm_status.router)
 app.include_router(models.router)
 app.include_router(admin_users.router)
+app.include_router(admin_system.router)
+app.include_router(public.router)
 app.include_router(admin_users.self_router)

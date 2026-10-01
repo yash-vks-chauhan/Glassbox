@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.core.auth.deps import current_user
 from app.core.security.encryption import EncryptionError, encrypt, safe_last4
 from app.db import get_db
@@ -61,6 +62,15 @@ def _aad_for(user_id: str) -> bytes:
     return f"byo_key:{user_id}".encode("utf-8")
 
 
+_BYO_KEY_ROLES = frozenset({"admin", "owner"})
+
+
+def byo_keys_allowed(user: User) -> bool:
+    """Admins and owners may always use their own model key; other roles
+    only when ALLOW_ADVISOR_BYO_KEYS is on."""
+    return user.role in _BYO_KEY_ROLES or get_settings().allow_advisor_byo_keys
+
+
 @router.get("", response_model=list[ByoKeyOut])
 def list_byo_keys(
     db: Session = Depends(get_db),
@@ -78,6 +88,11 @@ def upsert_byo_key(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> ByoKeyOut:
+    if not byo_keys_allowed(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bring-your-own model keys are limited to admins in this workspace.",
+        )
     provider = payload.provider.strip().lower()
     blob = encrypt(payload.api_key, aad=_aad_for(user.id))
     row = db.scalar(

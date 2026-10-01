@@ -142,9 +142,13 @@ export type MeResponse = {
   user_id: string;
   tenant_id: string;
   tenant_slug: string;
+  tenant_name: string;
   email: string;
+  display_name: string | null;
   role: "owner" | "admin" | "compliance" | "advisor";
   mfa_enrolled: boolean;
+  /** Whether this user may store and use their own model API key. */
+  can_use_byo_keys: boolean;
 };
 
 const DEFAULT_API_BASE = "http://localhost:8000";
@@ -661,6 +665,47 @@ export type LlmStatus = {
   recommended_free_models: Array<{ id: string; name: string }>;
   error?: string;
 };
+
+export type GuardrailStatus = {
+  key: string;
+  label: string;
+  enabled: boolean;
+  detail: string | null;
+  /** Environment variable that controls it; null means always on. */
+  setting: string | null;
+};
+
+export type SystemInfo = {
+  version: string;
+  environment: "production" | "development";
+  database: string;
+  inference_mode: string;
+  inference_route: string | null;
+  embedding_backend: string;
+  rate_limits: { auth_per_min: number; ask_per_min: number; default_per_min: number };
+  max_ask_body_bytes: number;
+  audit_retention: string;
+  guardrails: GuardrailStatus[];
+};
+
+export function getSystemInfo() {
+  return request<SystemInfo>("/admin/system");
+}
+
+export function submitAccessRequest(input: {
+  name: string;
+  company: string;
+  work_email: string;
+  role: string;
+  message: string | null;
+  /** Honeypot field; real visitors never fill it in. */
+  website: string | null;
+}) {
+  return request<{ status: "received" }>("/public/access-requests", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
 
 export function getLlmStatus() {
   return request<LlmStatus>("/llm/status");

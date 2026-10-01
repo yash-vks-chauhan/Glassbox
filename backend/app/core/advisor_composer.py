@@ -66,7 +66,7 @@ def _direct_line(question: str, outcome: str, claims: list[ParsedClaim]) -> str:
     q = question.strip().lower()
     if outcome == "flagged" or any(is_flagged_text(claim.claim_text) for claim in claims):
         if re.match(r"^(can|may|would|should|is|are|does|do)\b", q):
-            return "No. I would not proceed with this as proposed."
+            return "No. Do not proceed as proposed."
         return "Needs review before client action."
     if _asks_exposure_permission(question) and any("exclusion" in claim.claim_text.lower() for claim in claims):
         return "The retrieved mandate does not show a cited restriction for the requested exposure."

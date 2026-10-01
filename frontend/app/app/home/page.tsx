@@ -8,7 +8,6 @@ import {
   FileWarning,
   Inbox,
   ScanLine,
-  Sparkles,
 } from "lucide-react";
 
 import { PageContainer, PageHeader } from "@/components/PageContainer";
@@ -16,50 +15,70 @@ import { OutcomeBadge } from "@/components/OutcomeBadge";
 import {
   getAuditSummaries,
   getMetrics,
+  listEscalations,
   type AuditSummary,
+  type Escalation,
   type MetricsSummary,
 } from "@/lib/api";
 import { hasAtLeastRole, useAuth } from "@/lib/auth-context";
 import { useClients } from "@/lib/clients-hooks";
-import { classify } from "@/lib/outcomes";
 import { Skeleton } from "@/components/ui/skeleton";
+
+const ACTIVE_ESCALATION = new Set<Escalation["status"]>(["open", "in_review"]);
+
+function greetingFor(hour: number) {
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
+}
 
 export default function HomePage() {
   const { clients } = useClients();
-  const { role } = useAuth();
+  const { role, user } = useAuth();
   // `/metrics/summary` is compliance+; advisors would otherwise get a noisy
   // 403 banner on every 15-second poll. Skip the call entirely for them.
   const canSeeMetrics = hasAtLeastRole(role, "compliance");
+  const isReviewer = canSeeMetrics;
   const getClient = (id: string | null | undefined) =>
     id ? clients.find((c) => c.id === id) : undefined;
   const [audits, setAudits] = useState<AuditSummary[] | null>(null);
+  const [escalations, setEscalations] = useState<Escalation[] | null>(null);
   const [metrics, setMetrics] = useState<MetricsSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [todayLabel, setTodayLabel] = useState("Today");
+  const [greeting, setGreeting] = useState("Welcome");
   const [nowMs, setNowMs] = useState<number | null>(null);
 
   useEffect(() => {
+    // Rendered after mount so server and client agree, in the viewer's own
+    // locale and time zone.
+    const now = new Date();
     setTodayLabel(
-      new Intl.DateTimeFormat("en-US", {
+      new Intl.DateTimeFormat(undefined, {
         weekday: "long",
         month: "short",
         day: "numeric",
-        timeZone: "Europe/Zurich",
-      }).format(new Date()),
+      }).format(now),
     );
-    setNowMs(Date.now());
+    setGreeting(greetingFor(now.getHours()));
+    setNowMs(now.getTime());
 
     let active = true;
     async function load() {
       try {
-        const audits = await getAuditSummaries(30);
+        const [recent, queue] = await Promise.all([
+          getAuditSummaries(30),
+          listEscalations(200),
+        ]);
         if (!active) return;
-        setAudits(audits);
+        setAudits(recent);
+        setEscalations(queue);
         if (canSeeMetrics) {
           const m = await getMetrics();
           if (!active) return;
           setMetrics(m);
         }
+        setNowMs(Date.now());
         setError(null);
       } catch (err) {
         if (active) setError(err instanceof Error ? err.message : "Failed to load home");
@@ -71,15 +90,23 @@ export default function HomePage() {
       active = false;
       window.clearInterval(t);
     };
-  }, []);
+  }, [canSeeMetrics]);
 
-  const today = useMemo(() => {
-    if (!audits) return null;
-    const flagged = audits.filter((a) => classify(a) === "flagged").length;
-    const refused = audits.filter((a) => classify(a) === "refused").length;
-    const fallback = audits.filter((a) => classify(a) === "fallback").length;
-    return { flagged, refused, fallback };
-  }, [audits]);
+  // Escalations are scoped by the API: reviewers see the tenant's queue,
+  // advisors see the ones they raised.
+  const queue = useMemo(() => {
+    if (!escalations || nowMs === null) return null;
+    const active = escalations.filter((e) => ACTIVE_ESCALATION.has(e.status));
+    return {
+      active: active.length,
+      mine: active.filter((e) => e.assigned_to_user_id === user?.user_id).length,
+      unclaimed: active.filter((e) => !e.assigned_to_user_id).length,
+      breached: active.filter((e) => new Date(e.sla_due_at).getTime() < nowMs).length,
+    };
+  }, [escalations, nowMs, user?.user_id]);
+
+  const firstName =
+    user?.display_name?.trim().split(/\s+/)[0] || user?.email.split("@")[0] || "";
 
   return (
     <PageContainer>
@@ -87,7 +114,7 @@ export default function HomePage() {
         eyebrow={"Operational view"}
         title={
           <span className="flex items-baseline gap-2">
-            Good morning, Sarah
+            {firstName ? `${greeting}, ${firstName}` : greeting}
             <span className="font-sans text-sm font-normal text-muted-foreground">
               · {todayLabel}
             </span>
@@ -99,17 +126,23 @@ export default function HomePage() {
       <div className="grid gap-4 lg:grid-cols-3">
         <KpiCard
           icon={ClipboardList}
-          label="Open flags assigned to me"
-          value={today?.flagged ?? "—"}
-          hint={today ? `${today.flagged} need review, ${today.refused} refusals to close` : null}
-          href="/app/review"
+          label={isReviewer ? "Open escalations" : "My open escalations"}
+          value={queue?.active ?? "—"}
+          hint={
+            queue
+              ? isReviewer
+                ? `${queue.mine} assigned to you · ${queue.unclaimed} unclaimed`
+                : "Waiting on a compliance reviewer"
+              : null
+          }
+          href={isReviewer ? "/app/review" : "/app/audit"}
         />
         <KpiCard
           icon={FileWarning}
-          label="SLA breaches today"
-          value={today ? Math.max(0, today.flagged - 4) : "—"}
-          hint="Target: 0. Triage flagged items < 4h"
-          href="/app/review"
+          label="Past their review SLA"
+          value={queue?.breached ?? "—"}
+          hint="Target: 0. Open escalations whose SLA deadline has passed"
+          href={isReviewer ? "/app/review" : "/app/audit"}
         />
         <KpiCard
           icon={ScanLine}
@@ -203,17 +236,6 @@ export default function HomePage() {
               </li>
             ))}
           </ul>
-
-          <div className="mt-6 rounded-lg border bg-card/60 p-4">
-            <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-              <Sparkles className="h-3 w-3" /> What's new
-            </div>
-            <ul className="space-y-1.5 text-sm text-muted-foreground">
-              <li>Grounding scorer retrained on 184 labelled reviews.</li>
-              <li>Determinism harness now runs nightly at 02:00 UTC.</li>
-              <li>PDF audit-binder export added to Audit log.</li>
-            </ul>
-          </div>
         </section>
       </div>
 

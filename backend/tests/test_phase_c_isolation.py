@@ -23,7 +23,7 @@ from sqlalchemy import select
 
 from app.core.auth import service as auth_service
 from app.core.auth.tokens import issue_access_token
-from app.db import SessionLocal, engine
+from app.db import SessionLocal
 from app.main import app
 from app.models_db import DEMO_TENANT_ID, ClientRecord, Decision, Tenant, User
 
@@ -117,6 +117,7 @@ PROTECTED_ENDPOINTS = [
     ("GET", "/models/eval-dataset", None),
     ("GET", "/models/approved", None),
     ("GET", "/llm/status", None),
+    ("GET", "/admin/system", None),
     ("GET", "/auth/me", None),
     ("POST", "/auth/invite", {"email": "a@b.com", "role": "advisor"}),
     ("POST", "/auth/mfa/enroll", None),

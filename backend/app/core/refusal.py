@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 import joblib
 
@@ -25,7 +24,6 @@ def should_refuse(question: str, retrieved: list[RetrievedChunk]) -> tuple[bool,
     if not retrieved:
         return True, "No relevant source documents were retrieved."
     max_score = max(chunk.score for chunk in retrieved)
-    source_text = " ".join(chunk.chunk_text for chunk in retrieved).lower()
     if re.search(r"\bproduct not present\b", question, re.I):
         return True, "The approved corpus does not contain a source that supports this request."
     if re.search(r"\b(ignore|override)\s+the\s+ips\b", question, re.I) and not re.search(

@@ -21,7 +21,7 @@ cleans up the users / tokens it creates.
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from uuid import uuid4
 
 import pytest
@@ -43,9 +43,7 @@ from app.models_db import (
     PasswordReset,
     RefreshToken,
     SecurityEvent,
-    Tenant,
     User,
-    UserInvitation,
 )
 from sqlalchemy import select
 

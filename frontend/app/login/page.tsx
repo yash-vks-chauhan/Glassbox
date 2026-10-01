@@ -180,21 +180,6 @@ function LoginInner() {
             </Button>
         </form>
 
-        <div className="mt-6 flex items-center gap-3 text-xs text-muted-foreground">
-          <span className="h-px flex-1 bg-border" />
-          <span>OR</span>
-          <span className="h-px flex-1 bg-border" />
-        </div>
-
-        <div className="mt-4 grid gap-2">
-          <Button variant="outline" className="h-10 w-full rounded-md text-sm" disabled>
-            Continue with Okta (coming soon)
-          </Button>
-          <Button variant="outline" className="h-10 w-full rounded-md text-sm" disabled>
-            Continue with Microsoft (coming soon)
-          </Button>
-        </div>
-
         <p className="mt-6 text-center text-xs text-muted-foreground">
           New to GlassBox?{" "}
           <Link href="/contact" className="text-foreground hover:underline">

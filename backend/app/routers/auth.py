@@ -24,6 +24,7 @@ from app.core.auth.deps import current_user, require_role
 from app.core.auth.passwords import WeakPasswordError
 from app.db import get_db
 from app.models_db import Tenant, User
+from app.routers.byo_keys import byo_keys_allowed
 from app.schemas import (
     AcceptInviteRequest,
     AcceptInviteResponse,
@@ -434,7 +435,10 @@ def me(
         user_id=user.id,
         tenant_id=user.tenant_id,
         tenant_slug=tenant.slug if tenant else "",
+        tenant_name=tenant.name if tenant else "",
         email=user.email,
+        display_name=user.display_name,
         role=user.role,
         mfa_enrolled=user.mfa_enrolled,
+        can_use_byo_keys=byo_keys_allowed(user),
     )

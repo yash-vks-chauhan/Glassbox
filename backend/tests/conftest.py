@@ -79,9 +79,8 @@ _app_config.get_settings.cache_clear()
 import pytest  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 
-from app.config import get_settings  # noqa: E402
 from app.core.auth import service as auth_service  # noqa: E402
-from app.core.auth.deps import current_user, require_role  # noqa: E402
+from app.core.auth.deps import current_user  # noqa: E402
 from app.db import SessionLocal, engine, init_db  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models_db import DEMO_TENANT_ID, User  # noqa: E402
@@ -283,7 +282,7 @@ def make_user(
 
 def make_tenant(slug: str | None = None) -> str:
     """Create a second tenant for cross-tenant isolation tests."""
-    from app.models_db import Tenant, utcnow
+    from app.models_db import Tenant
 
     slug = slug or f"t-{uuid4().hex[:6]}"
     with SessionLocal() as db:

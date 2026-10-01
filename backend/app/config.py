@@ -185,6 +185,14 @@ class Settings(BaseSettings):
     bootstrap_setup_key: str | None = Field(
         default=None, alias="BOOTSTRAP_SETUP_KEY"
     )
+    # Bring-your-own model keys are an admin/owner tool by default. Set to 1
+    # to let advisors and compliance users store and use their own key.
+    allow_advisor_byo_keys: bool = Field(default=False, alias="ALLOW_ADVISOR_BYO_KEYS")
+    # Where contact-page access requests are emailed (via the same mail
+    # backend as invites). Unset: requests are only stored in the database.
+    access_request_notify_email: str | None = Field(
+        default=None, alias="ACCESS_REQUEST_NOTIFY_EMAIL"
+    )
 
     # --- Phase E hardening ---
     app_encryption_key: str = Field(

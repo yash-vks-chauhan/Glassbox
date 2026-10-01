@@ -20,13 +20,12 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
 from app.core.auth.tokens import issue_access_token
 from app.core import retrieval as retrieval_mod
-from app.db import SessionLocal, engine
+from app.db import SessionLocal
 from app.main import app
 from app.models_db import DEMO_TENANT_ID, Tenant, User
 from app.core.auth import service as auth_service

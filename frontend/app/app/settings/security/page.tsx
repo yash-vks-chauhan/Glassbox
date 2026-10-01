@@ -84,6 +84,7 @@ export default function SettingsSecurityPage() {
         <ByoKeysCard
           keys={byoKeys}
           onReload={reloadByoKeys}
+          canAdd={user?.can_use_byo_keys ?? false}
         />
         <SessionsCard
           sessions={sessions}
@@ -310,7 +311,16 @@ function TwoFactorCard({ onChanged }: { onChanged: () => Promise<unknown> }) {
   );
 }
 
-function ByoKeysCard({ keys, onReload }: { keys: ByoKey[] | null; onReload: () => Promise<void> }) {
+function ByoKeysCard({
+  keys,
+  onReload,
+  canAdd,
+}: {
+  keys: ByoKey[] | null;
+  onReload: () => Promise<void>;
+  /** False when workspace policy reserves own model keys for admins. */
+  canAdd: boolean;
+}) {
   const [provider, setProvider] = useState("openrouter");
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
@@ -350,29 +360,36 @@ function ByoKeysCard({ keys, onReload }: { keys: ByoKey[] | null; onReload: () =
       title="BYO API keys"
       description="Your key is encrypted at rest with AES-GCM. The plaintext is never returned again — store it once."
     >
-      <form onSubmit={onSave} className="grid gap-3 sm:grid-cols-[1fr_2fr_auto]">
-        <Input
-          aria-label="Provider"
-          value={provider}
-          onChange={(e) => setProvider(e.target.value)}
-          placeholder="provider"
-          pattern="[a-z0-9._-]+"
-          required
-        />
-        <Input
-          aria-label="API key"
-          type="password"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          placeholder="sk-…"
-          minLength={8}
-          required
-        />
-        <Button type="submit" disabled={saving} className="h-10 rounded-md gap-1.5">
-          <KeyRound className="h-4 w-4" />
-          {saving ? "Saving…" : "Save"}
-        </Button>
-      </form>
+      {canAdd ? (
+        <form onSubmit={onSave} className="grid gap-3 sm:grid-cols-[1fr_2fr_auto]">
+          <Input
+            aria-label="Provider"
+            value={provider}
+            onChange={(e) => setProvider(e.target.value)}
+            placeholder="provider"
+            pattern="[a-z0-9._-]+"
+            required
+          />
+          <Input
+            aria-label="API key"
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder="sk-…"
+            minLength={8}
+            required
+          />
+          <Button type="submit" disabled={saving} className="h-10 rounded-md gap-1.5">
+            <KeyRound className="h-4 w-4" />
+            {saving ? "Saving…" : "Save"}
+          </Button>
+        </form>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          In this workspace only admins can add their own model keys. Keys you
+          stored earlier are listed below and can still be removed.
+        </p>
+      )}
       <div className="mt-4 space-y-2">
         {keys === null ? (
           <Skeleton className="h-12 rounded-md" />

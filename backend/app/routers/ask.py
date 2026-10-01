@@ -18,7 +18,7 @@ from app.core.model_router import (
 from app.core.orchestrator import run_ask, run_ask_events
 from app.db import get_db
 from app.models_db import ClientRecord, User
-from app.routers.byo_keys import load_byo_key_for_user
+from app.routers.byo_keys import byo_keys_allowed, load_byo_key_for_user
 from app.schemas import AskRequest, AskResponse, AskRuntimeStatus
 
 
@@ -33,6 +33,8 @@ _BYO_PROVIDER = "openrouter"
 
 
 def _byo_key_for(db: Session, user: User) -> str | None:
+    if not byo_keys_allowed(user):
+        return None
     return load_byo_key_for_user(db, user_id=user.id, provider=_BYO_PROVIDER)
 
 

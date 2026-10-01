@@ -5,11 +5,12 @@ from collections import defaultdict
 
 from app.config import get_settings
 from app.core.model_router import (
-    LLMUnavailable,
+    # Re-exported: callers import these from app.core.llm.
+    LLMUnavailable as LLMUnavailable,
     RoutedChatResult,
     chat_with_router,
     chat_with_router_result,
-    has_usable_openrouter_key,
+    has_usable_openrouter_key as has_usable_openrouter_key,
 )
 
 

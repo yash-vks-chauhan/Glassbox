@@ -102,7 +102,7 @@ test("advisor login reaches workbench, hides admin, refreshes silently, and logs
   await expect(page.getByLabel("Conversation composer")).toBeVisible();
 
   await submitQuestion(page, "Can client C004 put 30% into fund F100?");
-  await expect(page.getByText(/No\. I would not proceed/i)).toBeVisible({
+  await expect(page.getByText(/No\. Do not proceed as proposed/i)).toBeVisible({
     timeout: 30_000,
   });
   await page.getByLabel("Decision trust details").last().click();

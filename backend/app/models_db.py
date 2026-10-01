@@ -577,3 +577,28 @@ class ModelEvalResult(Base):
     refusal_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     run: Mapped[ModelEvalRun] = relationship(back_populates="results")
+
+
+# ---------------------------------------------------------------------------
+# Marketing site
+# ---------------------------------------------------------------------------
+
+
+class AccessRequest(Base):
+    """A "request a walkthrough" submission from the public contact page.
+    Platform-level (there is no tenant yet), never shown to tenant users."""
+
+    __tablename__ = "access_requests"
+    __table_args__ = (Index("ix_access_requests_created_at", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    company: Mapped[str] = mapped_column(String(160), nullable=False)
+    work_email: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[str] = mapped_column(String(120), nullable=False)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)

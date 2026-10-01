@@ -138,9 +138,12 @@ class MeResponse(BaseModel):
     user_id: str
     tenant_id: str
     tenant_slug: str
+    tenant_name: str
     email: str
+    display_name: str | None = None
     role: str
     mfa_enrolled: bool
+    can_use_byo_keys: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -501,3 +504,47 @@ class ModelLeaderboard(BaseModel):
     evaluated_questions: int
     thresholds: dict
     models: list[ModelLeaderboardRow]
+
+
+class GuardrailStatus(BaseModel):
+    key: str
+    label: str
+    enabled: bool
+    detail: str | None = None
+    # Environment variable that controls it; None means always on.
+    setting: str | None = None
+
+
+class RateLimitInfo(BaseModel):
+    auth_per_min: int
+    ask_per_min: int
+    default_per_min: int
+
+
+class SystemInfo(BaseModel):
+    version: str
+    environment: str
+    database: str
+    inference_mode: str
+    inference_route: str | None = None
+    embedding_backend: str
+    rate_limits: RateLimitInfo
+    max_ask_body_bytes: int
+    audit_retention: str
+    guardrails: list[GuardrailStatus]
+
+
+class AccessRequestCreate(StrictModel):
+    """Public contact form. `website` is a honeypot: people never see the
+    field, so a non-empty value marks an automated submission."""
+
+    name: str = Field(min_length=1, max_length=120)
+    company: str = Field(min_length=1, max_length=160)
+    work_email: EmailStr
+    role: str = Field(min_length=1, max_length=120)
+    message: str | None = Field(default=None, max_length=4_000)
+    website: str | None = Field(default=None, max_length=200)
+
+
+class AccessRequestReceived(BaseModel):
+    status: str = "received"
