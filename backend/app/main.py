@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
 from app.config import assert_secrets_safe_for_mode, get_settings
+from app.core.scheduler import DeterminismScheduler
 from app.core.security.body_size import BodySizeLimitMiddleware
 from app.core.security.headers import SecurityHeadersMiddleware
 from app.core.security.logging import RequestContextMiddleware, configure_logging
@@ -44,7 +45,13 @@ async def lifespan(_: FastAPI):
     # an attacker forge JWTs and decrypt BYO keys using values in the repo.
     assert_secrets_safe_for_mode(settings)
     init_db()
+    scheduler = None
+    if get_settings().determinism_scheduler_enabled:
+        scheduler = DeterminismScheduler(get_settings().determinism_scheduler_interval_seconds)
+        scheduler.start()
     yield
+    if scheduler is not None:
+        scheduler.stop()
 
 
 app = FastAPI(title="GlassBox", version=__version__, lifespan=lifespan)

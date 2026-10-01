@@ -132,6 +132,15 @@ class Settings(BaseSettings):
     )
     rate_limit_per_min: int = Field(default=10, alias="RATE_LIMIT_PER_MIN")
     determinism_runs: int = Field(default=5, alias="DETERMINISM_RUNS")
+    # In-process scheduler for the nightly determinism harness. Safe with
+    # several workers (runs are claimed per tenant per day); turn it off to
+    # drive runs from cron with `python -m scripts.run_determinism --due`.
+    determinism_scheduler_enabled: bool = Field(
+        default=True, alias="DETERMINISM_SCHEDULER_ENABLED"
+    )
+    determinism_scheduler_interval_seconds: int = Field(
+        default=300, alias="DETERMINISM_SCHEDULER_INTERVAL_SECONDS"
+    )
 
     aws_region: str = Field(default="ap-south-1", alias="AWS_REGION")
     s3_corpus_bucket: str = Field(default="glassbox-corpus", alias="S3_CORPUS_BUCKET")

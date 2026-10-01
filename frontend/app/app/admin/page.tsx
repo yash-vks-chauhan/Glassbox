@@ -36,6 +36,10 @@ import {
   saveByoKey,
   deleteByoKey,
   getSystemInfo,
+  getDeterminismSchedule,
+  listDeterminismRuns,
+  saveDeterminismSchedule,
+  startDeterminismRun,
   type AuditVerifyReport,
   type ByoKey,
   type LlmStatus,
@@ -44,6 +48,8 @@ import {
   type ModelLeaderboard,
   type ProductionModelStatus,
   type SystemInfo,
+  type DeterminismRun,
+  type DeterminismSchedule,
 } from "@/lib/api";
 import { UsersCard } from "@/components/admin/UsersCard";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -657,34 +663,7 @@ export default function AdminPage() {
             </div>
           </Section>
 
-          <Section icon={Sigma} title="Determinism harness">
-            <div className="space-y-3">
-              <p className="text-xs text-muted-foreground">
-                Display-only placeholder for now. Run determinism through the backend endpoint or eval script until schedules are persisted.
-              </p>
-              <div className="grid grid-cols-2 gap-3">
-                <FormRow label="Schedule">
-                  <Input defaultValue="Daily · 02:00 UTC" disabled />
-                </FormRow>
-                <FormRow label="Runs per query">
-                  <Input defaultValue="5" disabled />
-                </FormRow>
-                <FormRow label="Alternate model">
-                  <Input placeholder="provider:model" disabled />
-                </FormRow>
-                <FormRow label="Temperature">
-                  <Input defaultValue="0.1" disabled />
-                </FormRow>
-              </div>
-              <div className="flex items-center gap-3">
-                <Switch defaultChecked disabled />
-                <span className="text-sm text-muted-foreground">Auto-publish to Insights (not persisted yet)</span>
-              </div>
-              <Button className="h-9 rounded-md text-xs" disabled>
-                Schedule persistence pending
-              </Button>
-            </div>
-          </Section>
+          <DeterminismCard />
         </div>
 
         <aside className="space-y-4">
@@ -998,6 +977,216 @@ function FormRow({ label, children }: { label: string; children: React.ReactNode
       </Label>
       {children}
     </div>
+  );
+}
+
+/** The nightly determinism harness: schedule (saved per workspace), a
+ * "Run now" button, and the latest runs with per-question scores. */
+function DeterminismCard() {
+  const [schedule, setSchedule] = useState<DeterminismSchedule | null>(null);
+  const [form, setForm] = useState<DeterminismSchedule | null>(null);
+  const [runs, setRuns] = useState<DeterminismRun[] | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  useEffect(() => {
+    getDeterminismSchedule()
+      .then((row) => {
+        setSchedule(row);
+        setForm(row);
+      })
+      .catch(() => setSchedule(null));
+    listDeterminismRuns(8)
+      .then(setRuns)
+      .catch(() => setRuns([]));
+  }, []);
+
+  const dirty =
+    !!form &&
+    !!schedule &&
+    (form.enabled !== schedule.enabled ||
+      form.hour_utc !== schedule.hour_utc ||
+      form.runs_per_question !== schedule.runs_per_question ||
+      form.sample_size !== schedule.sample_size);
+
+  async function save() {
+    if (!form) return;
+    setSaving(true);
+    try {
+      const saved = await saveDeterminismSchedule({
+        enabled: form.enabled,
+        hour_utc: form.hour_utc,
+        runs_per_question: form.runs_per_question,
+        sample_size: form.sample_size,
+      });
+      setSchedule(saved);
+      setForm(saved);
+      toast.success("Determinism schedule saved");
+    } catch (error) {
+      toast.error("Could not save the schedule", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function runNow() {
+    setRunning(true);
+    try {
+      const run = await startDeterminismRun();
+      setRuns((current) => [run, ...(current ?? [])].slice(0, 8));
+      setExpanded(run.id);
+      toast.success("Determinism run finished", {
+        description:
+          run.avg_score === null
+            ? "No questions to sample yet."
+            : `${run.question_count} questions · average ${Math.round(run.avg_score * 100)}%`,
+      });
+    } catch (error) {
+      toast.error("Run failed", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  const localHour = (hourUtc: number) =>
+    new Date(Date.UTC(2000, 0, 1, hourUtc)).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+  return (
+    <Section icon={Sigma} title="Determinism harness">
+      {form === null ? (
+        <Skeleton className="h-40 w-full rounded-md" />
+      ) : (
+        <div className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Each run asks a sample of this workspace&apos;s recent questions several times and scores
+            how much the answers drift. Runs never add decisions to the audit log; results feed the
+            Determinism metric on Insights.
+          </p>
+          <div className="flex items-center gap-3">
+            <Switch
+              checked={form.enabled}
+              onCheckedChange={(enabled) => setForm({ ...form, enabled })}
+              aria-label="Run nightly"
+            />
+            <span className="text-sm">Run nightly</span>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <FormRow label="Hour (UTC)">
+              <select
+                value={form.hour_utc}
+                onChange={(e) => setForm({ ...form, hour_utc: Number(e.target.value) })}
+                className="h-9 w-full rounded-md border bg-card px-2 text-sm"
+                aria-label="Hour (UTC)"
+              >
+                {Array.from({ length: 24 }, (_, h) => (
+                  <option key={h} value={h}>
+                    {String(h).padStart(2, "0")}:00
+                  </option>
+                ))}
+              </select>
+            </FormRow>
+            <FormRow label="Runs / question">
+              <Input
+                type="number"
+                min={2}
+                max={10}
+                value={form.runs_per_question}
+                onChange={(e) =>
+                  setForm({ ...form, runs_per_question: Math.max(2, Math.min(10, Number(e.target.value) || 2)) })
+                }
+              />
+            </FormRow>
+            <FormRow label="Questions">
+              <Input
+                type="number"
+                min={1}
+                max={25}
+                value={form.sample_size}
+                onChange={(e) =>
+                  setForm({ ...form, sample_size: Math.max(1, Math.min(25, Number(e.target.value) || 1)) })
+                }
+              />
+            </FormRow>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {form.enabled
+              ? `Runs daily at ${String(form.hour_utc).padStart(2, "0")}:00 UTC (${localHour(form.hour_utc)} your time).`
+              : "Nightly runs are off; you can still run it manually."}
+            {schedule?.next_run_at && form.enabled && !dirty
+              ? ` Next run ${new Date(schedule.next_run_at) <= new Date() ? "is due now" : new Date(schedule.next_run_at).toLocaleString()}.`
+              : ""}
+          </p>
+          <div className="flex gap-2">
+            <Button onClick={save} disabled={!dirty || saving} className="h-9 rounded-md text-xs">
+              {saving ? "Saving…" : "Save schedule"}
+            </Button>
+            <Button variant="outline" onClick={runNow} disabled={running} className="h-9 rounded-md text-xs">
+              {running ? "Running…" : "Run now"}
+            </Button>
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Recent runs</div>
+            {runs === null ? (
+              <Skeleton className="h-16 w-full rounded-md" />
+            ) : runs.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No runs yet.</p>
+            ) : (
+              <ul className="divide-y divide-border/60 rounded-md border text-sm">
+                {runs.map((run) => (
+                  <li key={run.id}>
+                    <button
+                      type="button"
+                      onClick={() => setExpanded(expanded === run.id ? null : run.id)}
+                      className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-accent/30"
+                    >
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(run.created_at).toLocaleString()}
+                      </span>
+                      <span className="text-xs text-muted-foreground">{run.triggered_by}</span>
+                      <span className="ml-auto text-xs text-muted-foreground">
+                        {run.question_count} question{run.question_count === 1 ? "" : "s"}
+                      </span>
+                      <span className="w-12 text-right font-medium tabular">
+                        {run.status === "failed"
+                          ? "failed"
+                          : run.avg_score === null
+                            ? "—"
+                            : `${Math.round(run.avg_score * 100)}%`}
+                      </span>
+                    </button>
+                    {expanded === run.id ? (
+                      <div className="space-y-1 border-t bg-background/60 px-3 py-2 text-xs">
+                        {run.error ? <p className="text-destructive">{run.error}</p> : null}
+                        {run.results.map((item, i) => (
+                          <div key={i} className="flex items-baseline justify-between gap-3">
+                            <span className="min-w-0 truncate" title={item.question}>
+                              {item.client_id ? `${item.client_id} · ` : ""}
+                              {item.question}
+                            </span>
+                            <span className="shrink-0 tabular text-muted-foreground">
+                              {Math.round(item.score * 100)}% · {item.distinct_answers} distinct
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+    </Section>
   );
 }
 

@@ -1203,9 +1203,68 @@ export function runDeterminism(input: {
 }) {
   return request<{
     determinism_score: number;
+    /** Always null: repeat runs are not recorded as decisions. */
     representative_decision_id: string | null;
     per_run_outcomes: AskResponse[];
+    run_id: string | null;
   }>("/determinism", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export type DeterminismSchedule = {
+  enabled: boolean;
+  hour_utc: number;
+  runs_per_question: number;
+  sample_size: number;
+  updated_at: string | null;
+  /** In the past when the run is due and waiting for the scheduler. */
+  next_run_at: string | null;
+};
+
+export type DeterminismRun = {
+  id: string;
+  created_at: string;
+  completed_at: string | null;
+  triggered_by: "schedule" | "manual";
+  scheduled_for: string | null;
+  status: "running" | "completed" | "failed";
+  model_route: string | null;
+  runs_per_question: number;
+  question_count: number;
+  avg_score: number | null;
+  min_score: number | null;
+  error: string | null;
+  results: Array<{
+    question: string;
+    client_id: string | null;
+    source: "recent" | "benchmark" | "manual";
+    score: number;
+    outcomes: string[];
+    distinct_answers: number;
+  }>;
+};
+
+export function getDeterminismSchedule() {
+  return request<DeterminismSchedule>("/determinism/schedule");
+}
+
+export function saveDeterminismSchedule(
+  input: Pick<DeterminismSchedule, "enabled" | "hour_utc" | "runs_per_question" | "sample_size">,
+) {
+  return request<DeterminismSchedule>("/determinism/schedule", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export function listDeterminismRuns(limit = 10) {
+  return request<DeterminismRun[]>(`/determinism/runs?limit=${limit}`);
+}
+
+export function startDeterminismRun(input: { runs_per_question?: number; sample_size?: number } = {}) {
+  return request<DeterminismRun>("/determinism/runs", {
     method: "POST",
     body: JSON.stringify(input),
   });

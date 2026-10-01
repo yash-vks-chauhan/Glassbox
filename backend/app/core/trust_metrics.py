@@ -149,8 +149,10 @@ def determinism_run(
     runs: int | None = None,
     alternate_model: str | None = None,
     tenant_id: str | None = None,
-    user_id: str | None = None,
 ):
+    """Ask ``question`` several times and score how much the answers drift.
+    The repeat runs are measurement, not advice, so no decisions are
+    recorded. Returns (score, responses)."""
     from app.core.orchestrator import run_ask
 
     settings = get_settings()
@@ -161,16 +163,12 @@ def determinism_run(
             client_id=client_id,
             byo_key=None,
             db=db,
-            persist=True,
+            persist=False,
             temperature=settings.llm_temperature,
             model=alternate_model,
             tenant_id=tenant_id,
-            user_id=user_id,
         )
         for _ in range(run_count)
     ]
-    score = determinism_score_from_answers([response.answer for response in responses])
-    representative_id = responses[0].decision_id if responses else None
-    # Decisions are hash-chained, so the score is never written back onto an
-    # existing row; doing so would make /audit/verify report tampering.
-    return score, representative_id, responses
+    answers = [response.answer or response.refusal_reason for response in responses]
+    return determinism_score_from_answers(answers), responses

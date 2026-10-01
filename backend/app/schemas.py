@@ -515,8 +515,11 @@ class DeterminismRequest(StrictModel):
 
 class DeterminismResponse(BaseModel):
     determinism_score: float
-    representative_decision_id: str | None
+    # Kept for API compatibility; repeat runs are no longer recorded as
+    # decisions, so this is always None. See run_id for the stored result.
+    representative_decision_id: str | None = None
     per_run_outcomes: list[AskResponse]
+    run_id: str | None = None
 
 
 class ModelHealth(BaseModel):
@@ -722,3 +725,51 @@ class ThreadDetail(ThreadOut):
 class ThreadUpdateRequest(StrictModel):
     status: Literal["open", "resolved"] | None = None
     title: str | None = Field(default=None, min_length=1, max_length=200)
+
+
+class DeterminismScheduleOut(BaseModel):
+    enabled: bool
+    hour_utc: int
+    runs_per_question: int
+    sample_size: int
+    updated_at: str | None = None
+    next_run_at: str | None = None
+
+
+class DeterminismScheduleUpdate(StrictModel):
+    enabled: bool
+    hour_utc: int = Field(ge=0, le=23)
+    runs_per_question: int = Field(ge=2, le=10)
+    sample_size: int = Field(ge=1, le=25)
+
+
+class DeterminismQuestionResult(BaseModel):
+    question: str
+    client_id: str | None = None
+    source: str
+    score: float
+    outcomes: list[str]
+    distinct_answers: int
+
+
+class DeterminismRunOut(BaseModel):
+    id: str
+    created_at: str
+    completed_at: str | None = None
+    triggered_by: str
+    scheduled_for: str | None = None
+    status: str
+    model_route: str | None = None
+    runs_per_question: int
+    question_count: int
+    avg_score: float | None = None
+    min_score: float | None = None
+    error: str | None = None
+    results: list[DeterminismQuestionResult] = []
+
+
+class DeterminismRunRequest(StrictModel):
+    """Overrides for a manual run; omitted fields use the schedule's."""
+
+    runs_per_question: int | None = Field(default=None, ge=2, le=10)
+    sample_size: int | None = Field(default=None, ge=1, le=25)

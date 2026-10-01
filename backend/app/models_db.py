@@ -1,9 +1,10 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from uuid import uuid4
 
 from sqlalchemy import (
     JSON,
     Boolean,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -565,6 +566,66 @@ class ClaimLabel(Base):
     )
 
     review: Mapped[DecisionReview] = relationship(back_populates="claim_labels")
+
+
+class DeterminismSchedule(Base):
+    """When the determinism harness runs for a tenant (at most once a day)."""
+
+    __tablename__ = "determinism_schedules"
+
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), primary_key=True
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    hour_utc: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
+    runs_per_question: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
+    sample_size: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
+    updated_by_user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+
+class DeterminismRun(Base):
+    """One run of the harness: each sampled question asked several times
+    without recording decisions, scored for how much the answers drift."""
+
+    __tablename__ = "determinism_runs"
+    __table_args__ = (
+        Index("ix_determinism_runs_tenant_id", "tenant_id"),
+        Index("ix_determinism_runs_created_at", "created_at"),
+        # A scheduled run is claimed by inserting its (tenant, date) row, so
+        # two server processes can't both run the same day's job.
+        UniqueConstraint("tenant_id", "scheduled_for", name="uq_determinism_runs_schedule_day"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # schedule | manual
+    triggered_by: Mapped[str] = mapped_column(String(16), nullable=False)
+    requested_by_user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id"), nullable=True
+    )
+    scheduled_for: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # running | completed | failed
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
+    model_route: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    runs_per_question: Mapped[int] = mapped_column(Integer, nullable=False)
+    question_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    avg_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    min_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    results_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class RateLimitBucket(Base):

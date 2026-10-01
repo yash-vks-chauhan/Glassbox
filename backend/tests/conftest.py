@@ -59,6 +59,8 @@ os.environ.update(
         "GLASSBOX_LOCAL_LLM": "1",
         "GLASSBOX_LOCAL_EVIDENCE_MODE": "1",
         "GLASSBOX_PRODUCTION_MODE": "0",
+        # No background harness runs while tests are asserting on the DB.
+        "DETERMINISM_SCHEDULER_ENABLED": "0",
     }
 )
 for _credential in (

@@ -21,7 +21,14 @@ from sqlalchemy.orm import Session
 
 from app.core.auth.deps import require_role
 from app.db import get_db
-from app.models_db import ClaimLabel, Decision, DecisionClaim, DecisionReview, User
+from app.models_db import (
+    ClaimLabel,
+    Decision,
+    DecisionClaim,
+    DecisionReview,
+    DeterminismRun,
+    User,
+)
 from app.schemas import MetricsPoint, MetricsSummary, MetricsTimeseries
 
 
@@ -37,6 +44,10 @@ def _is_complete():
     return or_(Decision.outcome.in_(("refused", "fallback")), has_claims)
 
 
+def _utc_day(value: datetime) -> date:
+    return (value.astimezone(timezone.utc) if value.tzinfo else value).date()
+
+
 def _ratio(part: int | None, whole: int | None) -> float | None:
     return (part or 0) / whole if whole else None
 
@@ -46,7 +57,7 @@ def metrics_summary(
     db: Session = Depends(get_db),
     user: User = Depends(require_role(*_METRICS_ROLES)),
 ) -> MetricsSummary:
-    total, scored, low, refused, flagged, complete, determinism = db.execute(
+    total, scored, low, refused, flagged, complete = db.execute(
         select(
             func.count(Decision.id),
             func.count(Decision.grounding_score),
@@ -54,9 +65,20 @@ def metrics_summary(
             func.sum(case((Decision.outcome == "refused", 1), else_=0)),
             func.sum(case((Decision.outcome == "flagged", 1), else_=0)),
             func.sum(case((_is_complete(), 1), else_=0)),
-            func.avg(Decision.determinism_score),
         ).where(Decision.tenant_id == user.tenant_id)
     ).one()
+    # Determinism comes from the harness, not from decisions: the latest
+    # completed run's average across its sampled questions.
+    determinism = db.scalar(
+        select(DeterminismRun.avg_score)
+        .where(
+            DeterminismRun.tenant_id == user.tenant_id,
+            DeterminismRun.status == "completed",
+            DeterminismRun.avg_score.is_not(None),
+        )
+        .order_by(DeterminismRun.created_at.desc())
+        .limit(1)
+    )
     outcome_counts = dict(
         db.execute(
             select(Decision.outcome, func.count(Decision.id))
@@ -95,33 +117,40 @@ def metrics_timeseries(
     """Daily (UTC) values for the last ``days`` days, oldest first."""
     today = datetime.now(timezone.utc).date()
     start = today - timedelta(days=days - 1)
+    window_start = datetime.combine(start, time.min, tzinfo=timezone.utc)
     rows = db.execute(
         select(
             Decision.created_at,
             Decision.outcome,
             Decision.grounding_score,
             _is_complete(),
-            Decision.determinism_score,
         ).where(
             Decision.tenant_id == user.tenant_id,
-            Decision.created_at >= datetime.combine(start, time.min, tzinfo=timezone.utc),
+            Decision.created_at >= window_start,
+        )
+    ).all()
+    runs = db.execute(
+        select(DeterminismRun.created_at, DeterminismRun.avg_score).where(
+            DeterminismRun.tenant_id == user.tenant_id,
+            DeterminismRun.status == "completed",
+            DeterminismRun.avg_score.is_not(None),
+            DeterminismRun.created_at >= window_start,
         )
     ).all()
 
     by_day: dict[date, list[tuple]] = {}
-    for created_at, outcome, grounding, complete, determinism in rows:
-        if created_at.tzinfo is not None:
-            created_at = created_at.astimezone(timezone.utc)
-        by_day.setdefault(created_at.date(), []).append(
-            (outcome, grounding, complete, determinism)
-        )
+    for created_at, outcome, grounding, complete in rows:
+        by_day.setdefault(_utc_day(created_at), []).append((outcome, grounding, complete))
+    determinism_by_day: dict[date, list[float]] = {}
+    for created_at, score in runs:
+        determinism_by_day.setdefault(_utc_day(created_at), []).append(score)
 
     points = []
     for offset in range(days):
         day = start + timedelta(days=offset)
         items = by_day.get(day, [])
-        scored = [g for _, g, _, _ in items if g is not None]
-        determinism = [d for _, _, _, d in items if d is not None]
+        scored = [g for _, g, _ in items if g is not None]
+        determinism = determinism_by_day.get(day, [])
         points.append(
             MetricsPoint(
                 date=day.isoformat(),
@@ -133,7 +162,7 @@ def metrics_timeseries(
                 hallucination_rate=_ratio(sum(g < LOW_GROUNDING for g in scored), len(scored)),
                 refusal_rate=_ratio(sum(o == "refused" for o, *_ in items), len(items)),
                 flagged_rate=_ratio(sum(o == "flagged" for o, *_ in items), len(items)),
-                audit_completeness=_ratio(sum(bool(c) for _, _, c, _ in items), len(items)),
+                audit_completeness=_ratio(sum(bool(c) for _, _, c in items), len(items)),
                 avg_determinism=(sum(determinism) / len(determinism)) if determinism else None,
             )
         )
