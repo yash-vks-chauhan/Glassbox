@@ -250,3 +250,40 @@ test("an expired MFA enrolment asks for a fresh invitation", async ({ page }) =>
   await expect(page).toHaveURL(new RegExp(`/accept-invite/${token}/mfa$`));
   expect(await page.evaluate((key) => sessionStorage.getItem(key), INVITE_MFA_KEY)).toBeNull();
 });
+
+// Set on the backend under test (CI does) to exercise first-run setup.
+const SETUP_KEY = process.env.BOOTSTRAP_SETUP_KEY ?? "";
+
+async function startSetup(page: Parameters<typeof fillLogin>[0], workspace: string, email: string) {
+  await page.goto("/setup");
+  await page.getByLabel("Setup key", { exact: true }).fill(SETUP_KEY);
+  await page.getByLabel("Workspace name").fill(workspace);
+  await page.getByLabel("Work email").fill(email);
+  await page.getByLabel("Password", { exact: true }).fill(INVITE_PASSWORD);
+  await page.getByLabel("Confirm password").fill(INVITE_PASSWORD);
+  await page.getByRole("button", { name: "Continue" }).click();
+}
+
+test("first-run setup creates a workspace owner with MFA", async ({ page }) => {
+  test.skip(!SETUP_KEY, "needs BOOTSTRAP_SETUP_KEY on the backend");
+  const id = Math.random().toString(36).slice(2, 8);
+  const workspace = `E2E Firm ${id}`;
+
+  await startSetup(page, workspace, `e2e-owner-${id}@example.com`);
+  await page.getByText("Can't scan? Enter this setup key manually").click();
+  const secret = (await page.getByTestId("mfa-setup-key").textContent())?.trim() ?? "";
+  await page.getByLabel("Authenticator code").fill(currentTotp(secret));
+  await page.getByRole("button", { name: /Verify and finish/ }).click();
+
+  await expect(page.getByText("Owner account ready")).toBeVisible();
+  await expect(page.getByText(`e2e-firm-${id}`)).toBeVisible();
+  await page.getByRole("button", { name: /Continue to GlassBox/ }).click();
+  await expect(page).toHaveURL(/\/app/);
+  await expect(page.getByTestId("sidebar-role-badge")).toHaveText("owner");
+
+  // Once the workspace has an owner, setup is closed for it.
+  await startSetup(page, workspace, `e2e-late-${id}@example.com`);
+  await expect(
+    page.getByRole("alert").filter({ hasText: "already has an owner" }),
+  ).toBeVisible();
+});

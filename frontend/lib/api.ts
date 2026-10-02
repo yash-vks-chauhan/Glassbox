@@ -613,6 +613,32 @@ export function acceptInvite(token: string, password: string, displayName?: stri
   });
 }
 
+export type BootstrapBeginRequest = {
+  setup_key: string;
+  tenant_slug: string;
+  tenant_name: string | null;
+  email: string;
+  password: string;
+  display_name: string | null;
+};
+
+export type BootstrapBeginResponse = {
+  bootstrap_token: string;
+  mfa_secret: string;
+  provisioning_uri: string;
+  user_id: string;
+};
+
+/** First-run setup: create a workspace's first owner (needs the server's
+ * BOOTSTRAP_SETUP_KEY). Finish with completeMfaSetup. */
+export function beginBootstrap(payload: BootstrapBeginRequest) {
+  return request<BootstrapBeginResponse>("/auth/bootstrap/begin", {
+    method: "POST",
+    skipAuthRefresh: true,
+    body: JSON.stringify(payload),
+  });
+}
+
 export type BootstrapCompleteResponse = {
   access_token: string;
   token_type: string;

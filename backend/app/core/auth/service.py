@@ -690,13 +690,16 @@ def accept_invitation(
 
 
 def _bootstrap_is_open(db: Session, *, tenant_id: str) -> bool:
-    """True when no owner/admin exists yet in the tenant. Bootstrap is open
-    on a per-tenant basis so multiple tenants can each go through their own
-    first-owner setup independently."""
+    """True until an owner or admin of the tenant has finished enrolling
+    MFA. Bootstrap is open on a per-tenant basis so multiple tenants can
+    each go through their own first-owner setup independently. An owner
+    left behind by a setup that was never completed (tab closed, token
+    expired) doesn't close it -- otherwise nobody could ever sign in."""
     existing = db.scalar(
         select(User.id).where(
             User.tenant_id == tenant_id,
             User.role.in_(("owner", "admin")),
+            User.mfa_enrolled.is_(True),
         )
     )
     return existing is None
@@ -755,16 +758,42 @@ def begin_bootstrap(
         )
         raise BootstrapClosed()
 
-    # Create the user as owner (highest role; they can invite admins after).
-    user = create_user(
-        db,
-        tenant_id=tenant.id,
-        email=email,
-        password=password,
-        role="owner",
-        display_name=display_name,
-        email_verified=True,
-    )
+    # Starting over replaces any unfinished setup: the same email reuses its
+    # row, and every other unfinished owner/admin loses its pending secret,
+    # so an earlier bootstrap token can no longer complete.
+    normalized = email.strip().lower()
+    user = None
+    unfinished = db.scalars(
+        select(User).where(
+            User.tenant_id == tenant.id,
+            User.role.in_(("owner", "admin")),
+            User.mfa_enrolled.is_(False),
+        )
+    ).all()
+    for stale in unfinished:
+        if stale.email == normalized:
+            user = stale
+        else:
+            stale.mfa_secret = None
+    if user is not None:
+        user.password_hash = hash_password(password)
+        user.role = "owner"
+        user.display_name = display_name
+        user.email_verified = True
+    else:
+        # Create the user as owner (highest role; they can invite admins after).
+        try:
+            user = create_user(
+                db,
+                tenant_id=tenant.id,
+                email=email,
+                password=password,
+                role="owner",
+                display_name=display_name,
+                email_verified=True,
+            )
+        except InvalidCredentials:
+            raise ValueError("A user with this email already exists in this workspace.") from None
     secret = mfa_mod.generate_secret()
     user.mfa_secret = mfa_mod.pack_secret(secret, [], user_id=user.id)  # no recovery yet
     user.mfa_enrolled = False  # explicit; flipped by complete_bootstrap

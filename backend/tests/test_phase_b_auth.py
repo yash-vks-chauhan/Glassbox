@@ -922,3 +922,119 @@ def _read_latest_mail_body() -> str:
     eml_files = sorted(mail_dir.glob("*.eml"), key=lambda p: p.stat().st_mtime)
     assert eml_files, f"no .eml files in {mail_dir}"
     return eml_files[-1].read_text(encoding="utf-8")
+
+
+def test_abandoned_bootstrap_can_start_over_with_the_same_email(client, monkeypatch):
+    """An operator who closes the tab (or lets the 10-minute token expire)
+    after /begin must be able to run setup again; the unenrolled owner it
+    left behind used to close bootstrap for good."""
+    import pyotp
+
+    monkeypatch.setenv("BOOTSTRAP_SETUP_KEY", _BOOTSTRAP_KEY)
+    get_settings.cache_clear()
+    slug = f"bs-{uuid4().hex[:6]}"
+    email = f"test+bs-{uuid4().hex[:6]}@example.com"
+
+    first = client.post(
+        "/auth/bootstrap/begin",
+        json=_bootstrap_payload(slug=slug, email=email, password="First-Adm1n-Pass!"),
+    )
+    assert first.status_code == 201
+    again = client.post(
+        "/auth/bootstrap/begin",
+        json=_bootstrap_payload(slug=slug, email=email, password="Second-Adm1n-Pass!"),
+    )
+    assert again.status_code == 201, again.text
+    assert again.json()["user_id"] == first.json()["user_id"]
+
+    # The first secret is gone; the new one completes setup.
+    stale = client.post(
+        "/auth/bootstrap/complete",
+        json={
+            "bootstrap_token": first.json()["bootstrap_token"],
+            "mfa_code": pyotp.TOTP(first.json()["mfa_secret"]).now(),
+        },
+    )
+    assert stale.status_code == 400
+    done = client.post(
+        "/auth/bootstrap/complete",
+        json={
+            "bootstrap_token": again.json()["bootstrap_token"],
+            "mfa_code": pyotp.TOTP(again.json()["mfa_secret"]).now(),
+        },
+    )
+    assert done.status_code == 200, done.text
+    login = client.post(
+        "/auth/login",
+        json={"email": email, "password": "Second-Adm1n-Pass!", "tenant_slug": slug},
+    )
+    assert login.status_code == 202  # MFA challenge: the new password is the one set
+
+
+def test_restarting_bootstrap_with_another_email_voids_the_first(client, monkeypatch):
+    import pyotp
+
+    monkeypatch.setenv("BOOTSTRAP_SETUP_KEY", _BOOTSTRAP_KEY)
+    get_settings.cache_clear()
+    slug = f"bs-{uuid4().hex[:6]}"
+    typo = client.post(
+        "/auth/bootstrap/begin",
+        json=_bootstrap_payload(
+            slug=slug, email=f"test+typo-{uuid4().hex[:6]}@example.com", password="First-Adm1n-Pass!"
+        ),
+    ).json()
+    fixed = client.post(
+        "/auth/bootstrap/begin",
+        json=_bootstrap_payload(
+            slug=slug, email=f"test+bs-{uuid4().hex[:6]}@example.com", password="First-Adm1n-Pass!"
+        ),
+    )
+    assert fixed.status_code == 201, fixed.text
+
+    voided = client.post(
+        "/auth/bootstrap/complete",
+        json={
+            "bootstrap_token": typo["bootstrap_token"],
+            "mfa_code": pyotp.TOTP(typo["mfa_secret"]).now(),
+        },
+    )
+    assert voided.status_code == 400
+    done = client.post(
+        "/auth/bootstrap/complete",
+        json={
+            "bootstrap_token": fixed.json()["bootstrap_token"],
+            "mfa_code": pyotp.TOTP(fixed.json()["mfa_secret"]).now(),
+        },
+    )
+    assert done.status_code == 200
+    closed = client.post(
+        "/auth/bootstrap/begin",
+        json=_bootstrap_payload(
+            slug=slug, email=f"test+late-{uuid4().hex[:6]}@example.com", password="First-Adm1n-Pass!"
+        ),
+    )
+    assert closed.status_code == 409
+
+
+def test_bootstrap_with_a_member_email_explains_itself(client, monkeypatch):
+    """An email that already belongs to the workspace is a 400 that says so,
+    not the 401 "invalid setup key" it used to fall through to."""
+    from tests.conftest import make_tenant
+
+    monkeypatch.setenv("BOOTSTRAP_SETUP_KEY", _BOOTSTRAP_KEY)
+    get_settings.cache_clear()
+    slug = f"bs-{uuid4().hex[:6]}"
+    tenant_id = make_tenant(slug)
+    email = f"test+member-{uuid4().hex[:6]}@example.com"
+    with SessionLocal() as db:
+        auth_service.create_user(
+            db, tenant_id=tenant_id, email=email, password="Member-Sup3rSecur3!", role="advisor"
+        )
+        db.commit()
+
+    res = client.post(
+        "/auth/bootstrap/begin",
+        json=_bootstrap_payload(slug=slug, email=email, password="First-Adm1n-Pass!"),
+    )
+    assert res.status_code == 400
+    assert "already exists" in res.json()["detail"]
