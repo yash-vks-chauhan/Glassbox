@@ -1,6 +1,7 @@
 # Development and CI tooling (not needed at runtime).
 -r requirements.txt
 ruff==0.16.10
+pip-audit>=2.10,<3
 pytest>=9.0,<10
 pytest-cov>=7.1,<8
 # Starlette's TestClient runs on httpx2 (plain httpx is deprecated there).

@@ -187,10 +187,10 @@ class Settings(BaseSettings):
     # First-admin bootstrap key. When set (non-empty), /auth/bootstrap/* lets
     # the operator create the very first owner of a tenant without already
     # holding an admin session — solves the chicken-and-egg "admin needs MFA
-    # but can't enroll MFA without being logged in" problem. The endpoint
-    # self-closes once any owner/admin exists in the target tenant, so a
-    # leaked key after first use grants nothing. Leave unset (the default) to
-    # disable the endpoint entirely.
+    # but can't enroll MFA without being logged in" problem. It closes for a
+    # tenant once an owner or admin there has finished MFA enrolment, so a
+    # leaked key after first use grants nothing for that tenant. The web app
+    # drives it from /setup. Leave unset (the default) to disable it.
     bootstrap_setup_key: str | None = Field(
         default=None, alias="BOOTSTRAP_SETUP_KEY"
     )

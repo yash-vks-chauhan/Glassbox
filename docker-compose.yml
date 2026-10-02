@@ -1,12 +1,15 @@
 # Full local stack: Postgres, the API and the web app.
 #
-#   docker compose up --build        # everything, at http://localhost:3000
-#   docker compose up -d postgres    # just Postgres, for a backend run by hand
+#   BOOTSTRAP_SETUP_KEY=<long random string> docker compose up --build
+#       everything, at http://localhost:3000; create the first owner at
+#       /setup with that key (workspace ID "demo" has the sample clients)
+#   docker compose up -d postgres
+#       just Postgres, for a backend run by hand
 #
 # It runs in development mode with the built-in dev secrets and the free
 # local evidence engine (no hosted model, no API key). Email goes to files
-# in the backend's /data/mail. Credentials in your .env are deliberately not
-# passed through. For production settings see infra/aws-notes.md.
+# in the backend's /data/mail. SMTP and model credentials in your .env are
+# deliberately not passed through. For production see infra/aws-notes.md.
 services:
   postgres:
     image: postgres:15
@@ -32,6 +35,8 @@ services:
       FRONTEND_ORIGIN: http://localhost:${FRONTEND_HOST_PORT:-3000}
       GLASSBOX_PRODUCTION_MODE: "0"
       GLASSBOX_LOCAL_EVIDENCE_MODE: "1"
+      # Enables /setup until the workspace has an owner; leave unset after.
+      BOOTSTRAP_SETUP_KEY: ${BOOTSTRAP_SETUP_KEY:-}
     ports:
       - "${BACKEND_HOST_PORT:-8000}:8000"
     volumes:
