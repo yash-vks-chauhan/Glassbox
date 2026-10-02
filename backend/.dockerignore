@@ -1,0 +1,18 @@
+# Local state must never be baked into an image: the dev database holds real
+# accounts and MFA secrets.
+*.db
+*.db-wal
+*.db-shm
+chroma_store/
+.env
+.env.*
+
+# Not needed at runtime
+tests/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+Dockerfile
+.dockerignore

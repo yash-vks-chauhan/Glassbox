@@ -1,3 +1,12 @@
+# Full local stack: Postgres, the API and the web app.
+#
+#   docker compose up --build        # everything, at http://localhost:3000
+#   docker compose up -d postgres    # just Postgres, for a backend run by hand
+#
+# It runs in development mode with the built-in dev secrets and the free
+# local evidence engine (no hosted model, no API key). Email goes to files
+# in the backend's /data/mail. Credentials in your .env are deliberately not
+# passed through. For production settings see infra/aws-notes.md.
 services:
   postgres:
     image: postgres:15
@@ -7,7 +16,7 @@ services:
       POSTGRES_USER: glassbox
       POSTGRES_PASSWORD: glassbox
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
       - glassbox-postgres:/var/lib/postgresql/data
     healthcheck:
@@ -16,5 +25,34 @@ services:
       timeout: 5s
       retries: 10
 
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://glassbox:glassbox@postgres:5432/glassbox
+      FRONTEND_ORIGIN: http://localhost:${FRONTEND_HOST_PORT:-3000}
+      GLASSBOX_PRODUCTION_MODE: "0"
+      GLASSBOX_LOCAL_EVIDENCE_MODE: "1"
+    ports:
+      - "${BACKEND_HOST_PORT:-8000}:8000"
+    volumes:
+      - glassbox-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_BASE: http://localhost:${BACKEND_HOST_PORT:-8000}
+    environment:
+      BACKEND_API_BASE: http://backend:8000
+    ports:
+      - "${FRONTEND_HOST_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
 volumes:
   glassbox-postgres:
+  glassbox-data:
