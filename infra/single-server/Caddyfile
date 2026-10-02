@@ -1,0 +1,18 @@
+# Caddy gets and renews the HTTPS certificates itself (Let's Encrypt, with
+# ZeroSSL as a fallback). The hostnames come from deploy.sh's .env.
+
+{$APP_HOST} {
+	header {
+		Strict-Transport-Security "max-age=63072000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+	reverse_proxy frontend:3000
+}
+
+# The API sets its own security headers. No compression here, so the
+# /ask/stream events reach the browser as they are sent.
+{$API_HOST} {
+	reverse_proxy backend:8000
+}

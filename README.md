@@ -100,11 +100,17 @@ from `backend/`.
 
 ## Deploy it
 
-Both images are production-ready (non-root, health checks, migrations on
-start that are safe with several replicas). The AWS runbook, with ECS
-Fargate, RDS PostgreSQL, an ALB and Secrets Manager, is in
-[infra/aws-notes.md](infra/aws-notes.md). It hasn't been deployed yet;
-that step needs an AWS account.
+It's live at **<https://app.15-252-203-137.sslip.io>** (API:
+<https://api.15-252-203-137.sslip.io/health>). It runs on one Graviton
+`t4g.small` server in AWS Mumbai for about $14 a month. Caddy handles HTTPS,
+Postgres runs in Docker, secrets live in SSM Parameter Store, and the disk
+is snapshotted daily. [infra/single-server/](infra/single-server/README.md)
+has the files and the steps to update or remove it.
+
+Both images run as non-root, have health checks, and migrate on start
+safely even with several replicas. For a managed, multi-server setup (ECS
+Fargate, RDS PostgreSQL, an ALB, Secrets Manager), follow
+[infra/aws-notes.md](infra/aws-notes.md).
 
 ## More
 
@@ -346,7 +352,7 @@ Live view of: hallucination rate, refusal/escalation frequency, determinism scor
 - [x] Our trained grounding scorer + refusal router + fallback classifier live.
 - [x] Determinism harness produces per-query scores.
 - [x] Live governance dashboard (hallucination / refusal / determinism / audit completeness).
-- [ ] Deployed on AWS with a public URL, free to visitors, rate-limited. *(Rate-limited and containerised; the deployment needs an AWS account — [runbook](infra/aws-notes.md).)*
+- [x] Deployed on AWS with a public URL, free to visitors, rate-limited. *([infra/single-server](infra/single-server/README.md))*
 - [x] README + design-decisions doc + demo media (screenshots).
 
 ---
@@ -358,7 +364,7 @@ Live view of: hallucination rate, refusal/escalation frequency, determinism scor
 > - Trained custom grounding, refusal-routing, and fallback classifiers (scikit-learn) to guard the trust boundary and provide an LLM-failure fallback with zero external dependency.
 > - Designed a **determinism harness** measuring answer-drift across repeated runs, surfacing the consistency/accuracy trade-off that current financial-AI research treats as an open problem.
 > - Generated **replayable decision traces** and a live governance dashboard (hallucination, refusal, determinism, audit-completeness), addressing the auditability gap regulators require under the EU AI Act.
-> - Packaged for **AWS** (Docker, RDS-ready migrations safe under concurrent deploys, CI on SQLite and Postgres) with rate-limited public access and no paid model dependency. *(Change to "Deployed on AWS" once it is.)*
+> - Deployed on **AWS** (EC2 Graviton with Docker and automatic TLS, ECR, SSM Parameter Store, daily EBS snapshots; Postgres audit store; CI on SQLite and Postgres) with rate-limited public access and no paid model dependency.
 
 ---
 
