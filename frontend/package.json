@@ -10,7 +10,8 @@
     "test:e2e": "playwright test",
     "test:e2e:demo": "playwright test e2e/demo.spec.ts",
     "test:e2e:phase-f": "playwright test e2e/phase-f-auth.spec.ts",
-    "typecheck": "next typegen && tsc --noEmit"
+    "typecheck": "next typegen && tsc --noEmit",
+    "screenshots": "playwright test --config playwright.screenshots.config.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
