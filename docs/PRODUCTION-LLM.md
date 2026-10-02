@@ -29,13 +29,14 @@ PYTHONPATH=. python scripts/run_model_eval.py \
   --no-persist
 ```
 
-Latest no-cost qualification on 2026-05-26:
+Latest no-cost qualification, re-run on 2026-10-02:
 
 - 183/183 eval cases
 - 100% outcome accuracy
 - 100% citation accuracy
 - 0% hallucination rate
-- 7ms average latency
+- determinism 1.00, faithfulness 0.98
+- 8ms average latency, 1ms p95
 
 ## Hosted Model Rule
 

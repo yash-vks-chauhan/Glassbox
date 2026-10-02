@@ -4,6 +4,132 @@
 >
 > Built for the real problem banks (like UBS) have in 2026: not "make a smarter AI" but "make an AI we can actually trust, defend, and deploy."
 
+![An advisor asks whether a client can put 40% into one fund; GlassBox flags it with the mandate clause and factsheets it relied on](docs/screenshots/ask.png)
+
+## What's in the box
+
+A working multi-tenant web app, not a notebook:
+
+- **Advisor workbench.** Ask about a client in plain language. Every claim is
+  cited to an approved document (the client's investment policy statement,
+  fund factsheets, regulation) and shown beside the answer. Follow-up
+  questions keep the thread's context, and the question the system actually
+  answered is shown and logged.
+- **Refuses instead of guessing.** Out-of-scope questions get a refusal that
+  says what source is missing, plus a one-click escalation to compliance.
+- **Audit trail.** Every decision is stored with the passages retrieved, the
+  claims kept and dropped, and its trust scores, then chained into a
+  tamper-evident hash chain per tenant. The database refuses deletes on the
+  audit tables. Filter the log, replay any decision, export CSV or a PDF
+  binder.
+- **Human oversight.** Escalations carry an SLA. Reviewers work a queue under
+  a four-eyes rule (you can't review your own question), label each claim,
+  and record corrections alongside the original, never over it. Those labels
+  feed the grounding scorer's training data.
+- **Governance metrics.** Audit completeness, low-grounding, refusal and
+  flagged rates, and determinism, each with a target and a 14-day trend. A
+  nightly determinism harness re-asks recent questions and measures drift.
+- **Accounts and security.** Workspaces with owner / admin / compliance /
+  advisor roles, invitations, TOTP MFA for owners and admins (secrets
+  encrypted at rest), rotating refresh tokens with reuse detection, rate
+  limits, strict request validation, and prompt-injection containment.
+- **No paid model needed.** The default answer path is a local evidence
+  engine (retrieval, policy checks, claim verification) that runs on CPU in
+  milliseconds. Hosted or self-hosted LLMs can be added, but only after they
+  pass the same evaluation gate.
+
+## Run it
+
+**With Docker** (Postgres, the API and the web app):
+
+```bash
+BOOTSTRAP_SETUP_KEY=choose-a-long-random-string docker compose up --build
+```
+
+Open <http://localhost:3000/setup>, enter that key and create the first owner.
+Use workspace ID `demo` to get the four sample clients and their documents.
+
+**Without Docker** (Python 3.12, Node 22):
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/pip install -r backend/requirements-dev.txt
+cp .env.example .env          # then set BOOTSTRAP_SETUP_KEY in it
+
+cd backend && ../.venv/bin/uvicorn app.main:app --reload --port 8000
+# in a second terminal:
+cd frontend && npm ci && npm run dev
+```
+
+Then open <http://localhost:3000/setup> as above. Locally the database is
+SQLite (`backend/glassbox_local.db`) unless `DATABASE_URL` points at Postgres;
+see [backend/README.md](backend/README.md) for migrations, evaluation and
+optional model routes.
+
+## Test it
+
+| What | Command | Now |
+|---|---|---|
+| Backend, SQLite | `cd backend && ../.venv/bin/pytest` | 243 passed, 5 skipped (Postgres-only) |
+| Backend, Postgres | `GLASSBOX_TEST_DATABASE_URL=postgresql+psycopg://…/glassbox_test pytest` | 248 passed |
+| Frontend | `cd frontend && npm run lint && npm run typecheck && npm run build` | clean |
+| End to end | `cd frontend && npm run test:e2e` (against a running stack) | 10 Playwright specs |
+| Dependencies | `npm audit` in `frontend/`, `../.venv/bin/pip-audit -r requirements.txt` in `backend/` | no known vulnerabilities |
+
+The backend suite is hermetic: a throwaway database, index and mail
+directory, and it never reads your `.env`. CI
+([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs all of it on
+every pull request, on SQLite and on Postgres 15, and builds and smoke-tests
+the Docker stack.
+
+## Measured
+
+On the project's 183-question benchmark (`glassbox-eval-v4`), re-run on
+2 October 2026 with the local evidence engine:
+
+| Outcome accuracy | Citation accuracy | Hallucination rate | Determinism | Faithfulness | Retrieval recall | p95 latency |
+|---|---|---|---|---|---|---|
+| 100% | 100% | 0% | 1.00 | 0.98 | 100% | 1 ms |
+
+The benchmark was written alongside the engine over a synthetic corpus, so
+it shows the engine does what it was designed to do. It doesn't show how it
+would do on a real firm's documents; that needs a firm's documents and
+reviewers. Reproduce it with
+`PYTHONPATH=. python -m scripts.run_model_eval --routes local:glassbox-evidence-engine --gate full --determinism-runs 2 --no-persist`
+from `backend/`.
+
+## Deploy it
+
+Both images are production-ready (non-root, health checks, migrations on
+start that are safe with several replicas). The AWS runbook, with ECS
+Fargate, RDS PostgreSQL, an ALB and Secrets Manager, is in
+[infra/aws-notes.md](infra/aws-notes.md). It hasn't been deployed yet;
+that step needs an AWS account.
+
+## More
+
+| | |
+|---|---|
+| [docs/design-decisions.md](docs/design-decisions.md) | Why grounded-only, why no fine-tuning, and the trade-offs behind threads, reviews and the hash chain |
+| [docs/threat-model.md](docs/threat-model.md) | STRIDE threats per surface, each mapped to code and a test |
+| [docs/SECURITY-IMPLEMENTATION.md](docs/SECURITY-IMPLEMENTATION.md) | The auth and hardening plan of record |
+| [docs/PRODUCTION-LLM.md](docs/PRODUCTION-LLM.md) | Adding a hosted or self-hosted model behind the evaluation gate |
+| [README-LATER.md](README-LATER.md) | What's left |
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/audit-replay.png" alt="Decision replay: final answer, claim audit, trust scores, row hash" /></td>
+    <td><img src="docs/screenshots/review.png" alt="Reviewer labelling each claim of an escalated decision" /></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/insights.png" alt="Insights: governance targets with trends" /></td>
+    <td><img src="docs/screenshots/refusal.png" alt="A refusal that names the missing source and offers escalation" /></td>
+  </tr>
+</table>
+
+Refresh the screenshots with `npm run screenshots` from `frontend/` against a
+running stack.
+
 ---
 
 ## 0. TL;DR — The Big Decisions (read this first)
@@ -18,32 +144,6 @@
 | Who pays when strangers use the demo? | **Nobody** | No paid model calls in the default path + AWS free/cheap tiers + rate limiting. |
 
 **One-line pitch:** Everyone is building AI agents that give finance answers; almost nobody is building the trust-and-audit layer that makes those answers safe to use. GlassBox is that missing layer.
-
-## Local Implementation Status
-
-This folder now contains a runnable local implementation:
-
-- FastAPI backend with retrieval, grounded answering, verification, refusal, fallback, audit replay, metrics, determinism, rate limiting, and trained scikit-learn trust models.
-- Synthetic IPS/factsheet/regulation corpus plus an ingestible local vector store.
-- Next.js frontend with advisor chat, cited sources, trust badges, dashboard, and audit replay pages.
-- `docs/LLM-QUALIFICATION-REPORT.md` tracks the no-paid model decision and hosted-model qualification status.
-
-Run locally:
-
-```bash
-source .venv/bin/activate
-cd backend
-uvicorn app.main:app --reload --port 8000
-```
-
-In another terminal:
-
-```bash
-cd frontend
-npm run dev
-```
-
-Then open `http://localhost:3000`.
 
 ---
 
@@ -102,10 +202,10 @@ The knowledge GlassBox is allowed to use. We assemble:
 - Synthetic client IPS / mandate documents (the rules: "no single position > 25%", exclusion lists, liquidity floors).
 - Public fund / ETF factsheets (risk level, asset class, region).
 - Public regulatory text snippets (suitability, cross-border basics).
-Stored in S3, indexed into the vector DB.
+Stored as Markdown under `backend/corpus/` (shared factsheets and regulation, per-tenant IPS and portfolio snapshots) and indexed at build time; S3 sync is optional.
 
 **B. Retrieval layer (RAG)**
-Takes the advisor's question, finds the most relevant document chunks. Built with a vector database (Chroma/FAISS/pgvector) + an embedding model (free, open-source).
+Takes the advisor's question, finds the most relevant document chunks, restricted to the caller's tenant plus shared documents. A small NumPy vector index with hash embeddings by default; `BAAI/bge-small-en-v1.5` (sentence-transformers) is optional.
 
 **C. Answer Path**
 The default path is a private local evidence engine: source retrieval, deterministic finance-policy extraction, claim verification, and advisor-safe rendering. Hosted/self-hosted LLMs remain optional candidates only after they pass the model gate.
@@ -120,7 +220,7 @@ Breaks the draft into atomic claims → checks each against its cited source →
 - **Fallback classifier** (our model): if an optional hosted LLM route is down/rate-limited, a small trained model returns a safe structured response (same idea as the AutoScaler fallback).
 
 **F. Provenance Logger + Audit DB**
-Every interaction logged: question, retrieved sources, claims kept/discarded, final answer or refusal, which rule applied, timestamps. Stored in Postgres (RDS). Replayable — an auditor can reconstruct exactly what the agent "knew" at decision time.
+Every interaction logged: question, retrieved sources, claims kept/discarded, final answer or refusal, which rule applied, timestamps. Stored in SQLite locally and Postgres (RDS) in production, hash-chained per tenant. Replayable — an auditor can reconstruct exactly what the agent "knew" at decision time.
 
 **G. Governance Dashboard (frontend)**
 Live view of: hallucination rate, refusal/escalation frequency, determinism score, audit-trail completeness, per-query traces. This is the "show, don't tell" trust display.
@@ -153,14 +253,14 @@ Live view of: hallucination rate, refusal/escalation frequency, determinism scor
 | Frontend | Next.js + React + TypeScript + Tailwind + Recharts | Already known from Kalakraft & AutoScaler |
 | Backend | Python + FastAPI | Already known from IIT/AutoScaler |
 | Inference | Private local evidence engine; optional OpenRouter/Ollama/vLLM candidates | No paid API required by default |
-| Embeddings | Open-source (e.g. sentence-transformers / bge) | Free |
-| Vector DB | Chroma / FAISS / pgvector | Free, lightweight |
+| Embeddings | Hash embeddings; optional sentence-transformers / bge | Free |
+| Vector index | NumPy, built from the corpus | Free, lightweight; pgvector if the corpus grows |
 | Our ML models | scikit-learn | CPU only |
-| Audit DB | PostgreSQL (AWS RDS) | Mirrors AutoScaler's TimescaleDB use |
-| Corpus storage | AWS S3 | Pennies |
-| Hosting | AWS (EC2/Lambda + API Gateway) | Uses the $150 credits |
-| Access control | IAM / RBAC | Already known; bank-relevant |
-| Public-demo safety | Rate limiting + request queue | Keeps it free for visitors |
+| Audit DB | SQLite locally, PostgreSQL (AWS RDS) in production; Alembic migrations | Mirrors AutoScaler's TimescaleDB use |
+| Corpus storage | Files in the image; AWS S3 optional | Pennies |
+| Hosting | Docker images; AWS ECS Fargate + ALB planned | Uses the $150 credits |
+| Access control | Tenants + RBAC, TOTP MFA, AWS IAM for the deployment | Bank-relevant |
+| Public-demo safety | Rate limiting per tier, body-size caps | Keeps it free for visitors |
 
 ---
 
@@ -180,6 +280,8 @@ Live view of: hallucination rate, refusal/escalation frequency, determinism scor
 ---
 
 ## 7. Build Roadmap (phased — adjust to your time budget)
+
+> Status, October 2026: phases 0–6 and 8 are built. Phase 7 is built except the deployment itself; see [infra/aws-notes.md](infra/aws-notes.md).
 
 > Lean demo ≈ 2–3 weeks (Phases 0–4). Full version ≈ 5–6 weeks (all phases).
 
@@ -236,26 +338,26 @@ Live view of: hallucination rate, refusal/escalation frequency, determinism scor
 
 ## 8. Definition of Done (checklist)
 
-- [ ] Answers cite real sources; unsupported claims removed.
-- [ ] Refuses/escalates on out-of-scope questions.
-- [ ] Chain-of-Verification pass implemented.
-- [ ] Every decision logged + replayable in audit DB.
-- [ ] Our trained grounding scorer + refusal router + fallback classifier live.
-- [ ] Determinism harness produces per-query scores.
-- [ ] Live governance dashboard (hallucination / refusal / determinism / audit completeness).
-- [ ] Deployed on AWS with a public URL, free to visitors, rate-limited.
-- [ ] README + design-decisions doc + demo media.
+- [x] Answers cite real sources; unsupported claims removed.
+- [x] Refuses/escalates on out-of-scope questions.
+- [x] Chain-of-Verification pass implemented.
+- [x] Every decision logged + replayable in audit DB.
+- [x] Our trained grounding scorer + refusal router + fallback classifier live.
+- [x] Determinism harness produces per-query scores.
+- [x] Live governance dashboard (hallucination / refusal / determinism / audit completeness).
+- [ ] Deployed on AWS with a public URL, free to visitors, rate-limited. *(Rate-limited and containerised; the deployment needs an AWS account — [runbook](infra/aws-notes.md).)*
+- [x] README + design-decisions doc + demo media (screenshots).
 
 ---
 
 ## 9. Resume Bullets (problem-and-impact first)
 
 > **GlassBox — Auditable Wealth-Advisory AI Agent**
-> - Built a multi-agent advisory system that answers compliance/suitability questions **only from cited sources**, implementing retrieval-grounding, Chain-of-Verification, and automatic refusal on ungrounded claims (reduced ungrounded responses to <X%).
+> - Built a multi-agent advisory system that answers compliance/suitability questions **only from cited sources**, implementing retrieval-grounding, Chain-of-Verification, and automatic refusal on ungrounded claims (0% hallucination and 100% citation accuracy on a 183-question benchmark).
 > - Trained custom grounding, refusal-routing, and fallback classifiers (scikit-learn) to guard the trust boundary and provide an LLM-failure fallback with zero external dependency.
 > - Designed a **determinism harness** measuring answer-drift across repeated runs, surfacing the consistency/accuracy trade-off that current financial-AI research treats as an open problem.
 > - Generated **replayable decision traces** and a live governance dashboard (hallucination, refusal, determinism, audit-completeness), addressing the auditability gap regulators require under the EU AI Act.
-> - Deployed on **AWS** (EC2/Lambda, RDS, S3, IAM/RBAC) with rate-limited public access and no paid model dependency.
+> - Packaged for **AWS** (Docker, RDS-ready migrations safe under concurrent deploys, CI on SQLite and Postgres) with rate-limited public access and no paid model dependency. *(Change to "Deployed on AWS" once it is.)*
 
 ---
 

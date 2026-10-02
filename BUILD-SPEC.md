@@ -1,5 +1,7 @@
 # GlassBox — Build Spec (Frozen Decisions)
 
+> **Status (October 2026):** this is the spec the build started from, kept as a record. Where the implementation differs (for example a NumPy index with hash embeddings instead of Chroma with bge, or tenants, MFA, threads and reviews, which came later), the [README](README.md) and [docs/design-decisions.md](docs/design-decisions.md) describe what was built.
+
 > **Purpose of this file:** remove every ambiguity so a coding agent (Codex/ChatGPT) builds the *same* system every time, with no guessing. Read together with `README.md`. The README = *what & why*. This = *exact how*.
 >
 > **How to use with Codex:** do NOT paste this whole file as one task. Use the phase prompts in `tasks/phase-*.md`, one at a time. This file is the shared reference both you and the agent rely on.

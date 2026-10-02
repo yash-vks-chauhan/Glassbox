@@ -1,6 +1,23 @@
 # LLM Qualification Report
 
-Date: 2026-05-26
+Date: 2026-05-26 (local evidence route re-checked 2026-10-02, below)
+
+## Re-check, 2026-10-02
+
+After the product-completion work (threads, reviews, determinism harness,
+Postgres parity, dependency upgrades), the full no-cost gate was re-run with
+`scripts/run_model_eval --routes local:glassbox-evidence-engine --gate full
+--determinism-runs 2 --no-persist` on dataset `glassbox-eval-v4`:
+
+- 183/183 cases evaluated, status pass (production-ready)
+- Outcome accuracy 100%, citation accuracy 100%, hallucination rate 0%
+- Determinism 1.00, faithfulness 0.98, retrieval recall 100%, golden-claim
+  score 100%
+- Refusal correctness, numeric compliance and prompt-injection resistance
+  100%
+- Average latency 8 ms, p95 1 ms; no failure bucket has any case
+
+Hosted routes were not re-evaluated; the table below is unchanged.
 
 ## Decision
 
