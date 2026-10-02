@@ -12,6 +12,8 @@ import {
   type SetStateAction,
 } from "react";
 
+import { useBrowserStorage, writeBrowserStorage } from "@/lib/use-browser-storage";
+
 type Theme = "light" | "dark" | "system";
 type ResolvedTheme = "light" | "dark";
 type ThemeAttribute = "class" | `data-${string}`;
@@ -41,6 +43,10 @@ type ThemeContextValue = {
 const DEFAULT_THEMES: Theme[] = ["light", "dark"];
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
+function parseTheme(value: string | null): Theme | null {
+  return value === "light" || value === "dark" || value === "system" ? value : null;
+}
+
 export function ThemeProvider({ children, ...props }: ThemeProviderProps) {
   const {
     attribute = "class",
@@ -54,7 +60,10 @@ export function ThemeProvider({ children, ...props }: ThemeProviderProps) {
     disableTransitionOnChange = false,
   } = props;
 
-  const [theme, setThemeState] = useState<Theme>(forcedTheme ?? defaultTheme);
+  const stored = parseTheme(useBrowserStorage("local", storageKey));
+  // Also kept in memory, for browsers that block storage.
+  const [chosen, setChosen] = useState<Theme | null>(null);
+  const theme = stored ?? chosen ?? defaultTheme;
   const [systemTheme, setSystemTheme] = useState<ResolvedTheme>("light");
 
   const resolvedTheme = useMemo<ResolvedTheme>(() => {
@@ -65,30 +74,12 @@ export function ThemeProvider({ children, ...props }: ThemeProviderProps) {
 
   const setTheme = useCallback<Dispatch<SetStateAction<Theme>>>(
     (nextTheme) => {
-      setThemeState((current) => {
-        const resolvedNext =
-          typeof nextTheme === "function" ? nextTheme(current) : nextTheme;
-        try {
-          window.localStorage.setItem(storageKey, resolvedNext);
-        } catch {
-          // Ignore private-mode or storage-disabled failures.
-        }
-        return resolvedNext;
-      });
+      const next = typeof nextTheme === "function" ? nextTheme(theme) : nextTheme;
+      setChosen(next);
+      writeBrowserStorage("local", storageKey, next);
     },
-    [storageKey],
+    [storageKey, theme],
   );
-
-  useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(storageKey) as Theme | null;
-      if (stored === "light" || stored === "dark" || stored === "system") {
-        setThemeState(stored);
-      }
-    } catch {
-      // Keep the default theme when storage is unavailable.
-    }
-  }, [storageKey]);
 
   useEffect(() => {
     if (!enableSystem) return;

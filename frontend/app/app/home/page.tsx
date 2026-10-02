@@ -26,6 +26,7 @@ import {
 import { KIND_LABEL, libraryHref } from "@/lib/library";
 import { hasAtLeastRole, useAuth } from "@/lib/auth-context";
 import { useClients } from "@/lib/clients-hooks";
+import { useNow } from "@/lib/use-now";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const ACTIVE_ESCALATION = new Set<Escalation["status"]>(["open", "in_review"]);
@@ -50,23 +51,20 @@ export default function HomePage() {
   const [metrics, setMetrics] = useState<MetricsSummary | null>(null);
   const [documents, setDocuments] = useState<LibraryDocument[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [todayLabel, setTodayLabel] = useState("Today");
-  const [greeting, setGreeting] = useState("Welcome");
-  const [nowMs, setNowMs] = useState<number | null>(null);
+  // Client-only clock (null while server rendering), in the viewer's own
+  // locale and time zone.
+  const nowMs = useNow();
+  const todayLabel =
+    nowMs === null
+      ? "Today"
+      : new Intl.DateTimeFormat(undefined, {
+          weekday: "long",
+          month: "short",
+          day: "numeric",
+        }).format(nowMs);
+  const greeting = nowMs === null ? "Welcome" : greetingFor(new Date(nowMs).getHours());
 
   useEffect(() => {
-    // Rendered after mount so server and client agree, in the viewer's own
-    // locale and time zone.
-    const now = new Date();
-    setTodayLabel(
-      new Intl.DateTimeFormat(undefined, {
-        weekday: "long",
-        month: "short",
-        day: "numeric",
-      }).format(now),
-    );
-    setGreeting(greetingFor(now.getHours()));
-    setNowMs(now.getTime());
     listLibrary()
       .then(setDocuments)
       .catch(() => setDocuments([]));
@@ -86,7 +84,6 @@ export default function HomePage() {
           if (!active) return;
           setMetrics(m);
         }
-        setNowMs(Date.now());
         setError(null);
       } catch (err) {
         if (active) setError(err instanceof Error ? err.message : "Failed to load home");

@@ -6,10 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "test:e2e": "playwright test",
     "test:e2e:demo": "playwright test e2e/demo.spec.ts",
-    "test:e2e:phase-f": "playwright test e2e/phase-f-auth.spec.ts"
+    "test:e2e:phase-f": "playwright test e2e/phase-f-auth.spec.ts",
+    "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

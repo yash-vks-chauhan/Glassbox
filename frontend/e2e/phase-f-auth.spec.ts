@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import {
+  createInvite,
   currentTotp,
   fillPrimaryLogin as fillLogin,
   resetRateLimitBuckets,
@@ -191,4 +192,61 @@ test("advisor direct navigation to admin page is blocked", async ({ page }) => {
   await page.goto("/app/admin");
   await expect(page.getByRole("heading", { name: "Admin access required" })).toBeVisible();
   await expect(page.getByText(/tenant admins and owners/i)).toBeVisible();
+});
+
+const INVITE_MFA_KEY = "glassbox.pending_invite_mfa";
+const INVITE_PASSWORD = "Invited-Sup3rSecur3!";
+
+async function acceptInvite(page: Parameters<typeof fillLogin>[0], token: string) {
+  await page.goto(`/accept-invite/${token}`);
+  await page.getByLabel("Display name (optional)").fill("Invited Admin");
+  await page.getByLabel("Password", { exact: true }).fill(INVITE_PASSWORD);
+  await page.getByLabel("Confirm password").fill(INVITE_PASSWORD);
+  await page.getByRole("button", { name: /Create account/ }).click();
+  await expect(page).toHaveURL(new RegExp(`/accept-invite/${token}/mfa$`));
+}
+
+test("an invited admin enrols MFA while accepting the invitation", async ({ page }) => {
+  const token = createInvite("admin");
+
+  // Without a pending enrolment, the MFA step sends you back to the invitation.
+  await page.goto(`/accept-invite/${token}/mfa`);
+  await expect(page).toHaveURL(new RegExp(`/accept-invite/${token}$`));
+
+  await acceptInvite(page, token);
+  await page.getByText("Can't scan? Enter this setup key manually").click();
+  const secret = (await page.getByTestId("mfa-setup-key").textContent())?.trim() ?? "";
+  expect(secret).toMatch(/^[A-Z2-7]{16,}$/);
+
+  await page.getByLabel("Authenticator code").fill(currentTotp(secret));
+  await page.getByRole("button", { name: /Verify and finish/ }).click();
+
+  await expect(page.getByText("MFA enrolled")).toBeVisible();
+  await expect(page.locator("ul li")).not.toHaveCount(0);
+  // The single-show secret doesn't outlive enrolment.
+  expect(await page.evaluate((key) => sessionStorage.getItem(key), INVITE_MFA_KEY)).toBeNull();
+
+  await page.getByRole("button", { name: /Continue to GlassBox/ }).click();
+  await expect(page).toHaveURL(/\/app/);
+  await expect(page.getByTestId("sidebar-role-badge")).toHaveText("admin");
+});
+
+test("an expired MFA enrolment asks for a fresh invitation", async ({ page }) => {
+  const token = createInvite("admin");
+  await acceptInvite(page, token);
+  await expect(page.getByLabel("Authenticator code")).toBeVisible();
+
+  await page.evaluate((key) => {
+    const pending = JSON.parse(sessionStorage.getItem(key) ?? "{}");
+    pending.created_at = Date.now() - 10 * 60 * 1000;
+    sessionStorage.setItem(key, JSON.stringify(pending));
+  }, INVITE_MFA_KEY);
+  await page.reload();
+
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Your enrolment session expired" }),
+  ).toHaveText("Your enrolment session expired. Ask for a fresh invitation.");
+  await expect(page.getByLabel("Authenticator code")).toHaveCount(0);
+  await expect(page).toHaveURL(new RegExp(`/accept-invite/${token}/mfa$`));
+  expect(await page.evaluate((key) => sessionStorage.getItem(key), INVITE_MFA_KEY)).toBeNull();
 });

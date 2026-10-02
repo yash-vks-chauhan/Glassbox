@@ -175,10 +175,10 @@ function FaqStrip() {
       ))}
       <div className="rounded-lg border border-dashed bg-card/40 p-5 sm:col-span-2">
         <div className="font-serif text-base font-semibold tracking-tight">
-          Have a question we didn't answer?
+          Have a question we didn&apos;t answer?
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
-          Pricing for regulated firms always needs context. Tell us about your team and we'll
+          Pricing for regulated firms always needs context. Tell us about your team and we&apos;ll
           reply with a quote.
         </p>
         <Link href="/contact" className="mt-3 inline-flex items-center gap-1.5 text-sm text-primary">

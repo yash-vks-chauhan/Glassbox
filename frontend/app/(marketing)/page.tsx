@@ -1,4 +1,3 @@
-import Link from "next/link";
 import {
   ArrowUpRight,
   ClipboardCheck,
@@ -7,7 +6,6 @@ import {
   Layers,
   LineChart,
   ShieldCheck,
-  Sparkles,
 } from "lucide-react";
 
 import { ButtonLink } from "@/components/ButtonLink";

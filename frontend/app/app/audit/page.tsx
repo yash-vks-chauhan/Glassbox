@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -77,6 +77,15 @@ function toQuery(filters: Filters): AuditQuery {
   };
 }
 
+type Results = {
+  /** Which filters (and refresh) these rows were fetched for. */
+  key: string;
+  query: AuditQuery;
+  rows: AuditSummary[];
+  total: number;
+  error: string | null;
+};
+
 export default function AuditLogPage() {
   return (
     <Suspense fallback={<AuditLogSkeleton />}>
@@ -96,18 +105,27 @@ function AuditLog() {
   const getClient = (id: string | null | undefined) =>
     id ? clients.find((c) => c.id === id) : undefined;
 
-  const [rows, setRows] = useState<AuditSummary[] | null>(null);
-  const [total, setTotal] = useState(0);
+  const [results, setResults] = useState<Results | null>(null);
+  const [refreshCount, setRefreshCount] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
   const [exporting, setExporting] = useState<"csv" | "pdf" | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState(filters.q);
-  // The last q this page wrote to the URL; any other change came from outside
-  // (e.g. the global search) and should replace what's in the box.
-  const pushedQuery = useRef(filters.q);
-  // The query used for the rows on screen, so "Load more" and exports
-  // match them even though "since" is relative to the moment of loading.
-  const activeQuery = useRef<AuditQuery>(toQuery(filters));
+  // The last q this page wrote to the URL. Any other change came from
+  // outside (e.g. the global search) and replaces what's in the box.
+  const [pushedQuery, setPushedQuery] = useState(filters.q);
+  const [seenQuery, setSeenQuery] = useState(filters.q);
+  if (filters.q !== seenQuery) {
+    setSeenQuery(filters.q);
+    if (filters.q !== pushedQuery) setSearch(filters.q);
+  }
+
+  // Results remember which filters (and refresh) they were fetched for, so
+  // "loading" is simply "the results on screen are for something else".
+  const resultsKey = `${searchParams.toString()}#${refreshCount}`;
+  const loading = results?.key !== resultsKey;
+  const rows = loading ? null : results.rows;
+  const total = loading ? 0 : results.total;
+  const error = loading ? null : results.error;
 
   const setFilters = useCallback(
     (patch: Partial<Filters>) => {
@@ -118,39 +136,36 @@ function AuditLog() {
       if (next.client !== "all") params.set("client", next.client);
       if (next.lowGrounding) params.set("grounding", "low");
       if (next.q.trim()) params.set("q", next.q.trim());
-      pushedQuery.current = next.q.trim();
+      setPushedQuery(next.q.trim());
       const qs = params.toString();
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     },
     [filters, pathname, router],
   );
 
-  const load = useCallback(async () => {
+  useEffect(() => {
+    let active = true;
+    // "since" is relative to now, so the query is fixed at fetch time and
+    // kept with the results for "Load more" and exports.
     const query = toQuery(filters);
-    activeQuery.current = query;
-    setRows(null);
-    try {
-      const page = await searchAudit(query, { limit: PAGE_SIZE, offset: 0 });
-      setRows(page.rows);
-      setTotal(page.total);
-      setError(null);
-    } catch (err) {
-      setRows([]);
-      setTotal(0);
-      setError(err instanceof Error ? err.message : "Could not load the audit log");
-    }
-  }, [filters]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  useEffect(() => {
-    if (filters.q !== pushedQuery.current) {
-      pushedQuery.current = filters.q;
-      setSearch(filters.q);
-    }
-  }, [filters.q]);
+    searchAudit(query, { limit: PAGE_SIZE, offset: 0 }).then(
+      (page) =>
+        active &&
+        setResults({ key: resultsKey, query, rows: page.rows, total: page.total, error: null }),
+      (err) =>
+        active &&
+        setResults({
+          key: resultsKey,
+          query,
+          rows: [],
+          total: 0,
+          error: err instanceof Error ? err.message : "Could not load the audit log",
+        }),
+    );
+    return () => {
+      active = false;
+    };
+  }, [filters, resultsKey]);
 
   // Debounce the search box into the URL.
   useEffect(() => {
@@ -160,15 +175,14 @@ function AuditLog() {
   }, [search, filters.q, setFilters]);
 
   async function loadMore() {
-    if (!rows) return;
+    if (!results) return;
     setLoadingMore(true);
     try {
-      const page = await searchAudit(activeQuery.current, {
+      const page = await searchAudit(results.query, {
         limit: PAGE_SIZE,
-        offset: rows.length,
+        offset: results.rows.length,
       });
-      setRows([...rows, ...page.rows]);
-      setTotal(page.total);
+      setResults({ ...results, rows: [...results.rows, ...page.rows], total: page.total });
     } catch (err) {
       toast.error("Could not load more decisions", {
         description: err instanceof Error ? err.message : undefined,
@@ -181,7 +195,7 @@ function AuditLog() {
   async function exportAs(format: "csv" | "pdf") {
     setExporting(format);
     try {
-      const filename = await downloadAuditExport(format, activeQuery.current);
+      const filename = await downloadAuditExport(format, results?.query ?? toQuery(filters));
       toast.success(`Downloaded ${filename}`, {
         description: `${total} decision${total === 1 ? "" : "s"} · this export is recorded in the security log.`,
       });
@@ -205,7 +219,7 @@ function AuditLog() {
             <Button
               variant="outline"
               className="h-9 gap-1.5 rounded-md text-xs"
-              onClick={() => void load()}
+              onClick={() => setRefreshCount((n) => n + 1)}
             >
               <RefreshCw className="h-3.5 w-3.5" />
               Refresh

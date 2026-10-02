@@ -6,7 +6,6 @@ import {
   AlertOctagon,
   ArrowUpRight,
   CalendarDays,
-  Check,
   FileText,
   Globe2,
   MessageSquarePlus,
@@ -30,21 +29,27 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 type Stats = { total: number; grounded: number; flagged: number; refused: number };
 
+type Activity = {
+  /** The client these numbers belong to. */
+  code: string;
+  audits: AuditSummary[];
+  stats: Stats | null;
+  threads: ThreadSummary[];
+};
+
 export default function ClientDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { client, isHydrated } = useClient(id);
-  const [audits, setAudits] = useState<AuditSummary[] | null>(null);
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [threads, setThreads] = useState<ThreadSummary[] | null>(null);
+  const [activity, setActivity] = useState<Activity | null>(null);
   const clientCode = client?.id;
+  // Data fetched for a different client (or none yet) reads as loading.
+  const loaded = activity && activity.code === clientCode ? activity : null;
+  const audits = loaded?.audits ?? null;
+  const stats = loaded?.stats ?? null;
+  const threads = loaded?.threads ?? null;
 
   useEffect(() => {
-    if (!clientCode) {
-      setAudits(null);
-      setStats(null);
-      setThreads(null);
-      return;
-    }
+    if (!clientCode) return;
     let active = true;
     // Counts come from the server so they cover the client's whole history,
     // not just the most recent page of decisions.
@@ -59,14 +64,15 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
     ])
       .then(([recent, grounded, flagged, refused, clientThreads]) => {
         if (!active) return;
-        setAudits(recent.rows);
-        setStats({ total: recent.total, grounded, flagged, refused });
-        setThreads(clientThreads);
+        setActivity({
+          code: clientCode,
+          audits: recent.rows,
+          stats: { total: recent.total, grounded, flagged, refused },
+          threads: clientThreads,
+        });
       })
       .catch(() => {
-        if (!active) return;
-        setAudits([]);
-        setThreads([]);
+        if (active) setActivity({ code: clientCode, audits: [], stats: null, threads: [] });
       });
     return () => {
       active = false;

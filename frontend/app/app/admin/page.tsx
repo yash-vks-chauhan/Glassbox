@@ -14,7 +14,6 @@ import {
   Sigma,
   Sliders,
   Trash2,
-  Users,
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -728,13 +727,38 @@ function Section({
 
 function AuditVerifyCard() {
   const [report, setReport] = useState<AuditVerifyReport | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  // Check once quietly on load; the button re-checks and reports the result.
+  useEffect(() => {
+    let active = true;
+    verifyAuditChain().then(
+      (result) => {
+        if (!active) return;
+        setReport(result);
+        setLoading(false);
+      },
+      () => active && setLoading(false),
+    );
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function runVerify() {
     setLoading(true);
     try {
-      setReport(await verifyAuditChain());
-      toast.success("Audit chain verified");
+      const result = await verifyAuditChain();
+      setReport(result);
+      if (result.ok) {
+        toast.success("Audit chain verified", {
+          description: `${result.verified} of ${result.total} decisions match their stored hashes.`,
+        });
+      } else {
+        toast.error("Audit chain is broken", {
+          description: result.first_break_reason ?? undefined,
+        });
+      }
     } catch (error) {
       toast.error("Audit verification failed", {
         description: error instanceof Error ? error.message : undefined,
@@ -743,10 +767,6 @@ function AuditVerifyCard() {
       setLoading(false);
     }
   }
-
-  useEffect(() => {
-    void runVerify();
-  }, []);
 
   return (
     <Section icon={ListChecks} title="Audit verify">

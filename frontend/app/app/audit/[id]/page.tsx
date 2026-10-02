@@ -23,6 +23,11 @@ export default function AuditReplayPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  // Keyed by decision so moving between replays starts from a clean state.
+  return <ReplayLoader key={id} id={id} />;
+}
+
+function ReplayLoader({ id }: { id: string }) {
   const [audit, setAudit] = useState<AuditDetail | null>(null);
   const [client, setClient] = useState<ClientRecord | undefined>();
   const [error, setError] = useState<string | null>(null);
@@ -30,11 +35,6 @@ export default function AuditReplayPage({
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
-    setError(null);
-    setAudit(null);
-    setClient(undefined);
-
     getAudit(id)
       .then(async (row) => {
         const loadedClient = row.client_id ? await getClient(row.client_id) : undefined;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ChevronLeft, ChevronRight, MessageSquarePlus, RotateCcw, ScanSearch } from "lucide-react";
 
@@ -120,6 +120,33 @@ function messagesFromThread(thread: ThreadDetail): Message[] {
   ]);
 }
 
+/** The conversation on screen and the thread it belongs to. */
+type View = {
+  threadId: string | null;
+  messages: Message[];
+  /** Set when this component has just saved a new conversation as
+   * `threadId`: until the URL catches up, a null `threadId` prop still
+   * means this conversation. */
+  awaitingUrl: boolean;
+};
+
+const NEW_VIEW: View = { threadId: null, messages: [], awaitingUrl: false };
+const NO_MESSAGES: Message[] = [];
+
+function shows(view: View, threadId: string | null): boolean {
+  return view.threadId === threadId || (view.awaitingUrl && threadId === null);
+}
+
+let messageSeq = 0;
+function nextMessageId(prefix: string): string {
+  messageSeq += 1;
+  return `${prefix}-${messageSeq}`;
+}
+
+function fetchThreads(clientId: string): Promise<ThreadSummary[]> {
+  return listThreads({ client_id: clientId }).catch(() => []);
+}
+
 function initials(name: string | null | undefined, email: string | undefined) {
   const source = name?.trim() || email?.split("@")[0] || "";
   const parts = source.split(/[\s._-]+/).filter(Boolean);
@@ -128,46 +155,48 @@ function initials(name: string | null | undefined, email: string | undefined) {
 
 export function Conversation({ client, threadId, onThreadChange }: Props) {
   const { user } = useAuth();
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [view, setView] = useState<View>(NEW_VIEW);
   const [threads, setThreads] = useState<ThreadSummary[] | null>(null);
-  const [loadingThread, setLoadingThread] = useState(false);
-  // Set when this component itself started a thread, so switching the URL to
-  // it doesn't reload messages that are already on screen.
-  const startedThreadRef = useRef<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [streamStatus, setStreamStatus] = useState<string | null>(null);
   const [focusedSourceId, setFocusedSourceId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
+
+  // The URL caught up with a conversation saved here, so from now on a
+  // null threadId means a new conversation again.
+  if (view.awaitingUrl && view.threadId === threadId) {
+    setView({ ...view, awaitingUrl: false });
+  }
+  const current = shows(view, threadId);
+  const messages = current ? view.messages : NO_MESSAGES;
+  const loadingThread = !current && threadId !== null;
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages.length, loading]);
 
-  const refreshThreads = useCallback(async () => {
-    try {
-      setThreads(await listThreads({ client_id: client.id }));
-    } catch {
-      setThreads([]);
-    }
+  useEffect(() => {
+    let active = true;
+    fetchThreads(client.id).then((rows) => {
+      if (active) setThreads(rows);
+    });
+    return () => {
+      active = false;
+    };
   }, [client.id]);
 
-  useEffect(() => {
-    void refreshThreads();
-  }, [refreshThreads]);
+  async function refreshThreads() {
+    setThreads(await fetchThreads(client.id));
+  }
 
+  // Open the thread in the URL, unless it is already on screen.
   useEffect(() => {
-    if (threadId === null) {
-      setMessages([]);
-      return;
-    }
-    if (startedThreadRef.current === threadId) return;
+    if (current || threadId === null) return;
     let active = true;
-    setLoadingThread(true);
     getThread(threadId)
       .then((thread) => {
-        if (!active) return;
-        setMessages(messagesFromThread(thread));
+        if (active) setView({ threadId, messages: messagesFromThread(thread), awaitingUrl: false });
       })
       .catch((err) => {
         if (!active) return;
@@ -175,12 +204,16 @@ export function Conversation({ client, threadId, onThreadChange }: Props) {
           description: err instanceof Error ? err.message : undefined,
         });
         onThreadChange(null);
-      })
-      .finally(() => active && setLoadingThread(false));
+      });
     return () => {
       active = false;
     };
-  }, [threadId, onThreadChange]);
+  }, [current, threadId, onThreadChange]);
+
+  // Put a conversation that was just saved as a thread into the URL.
+  useEffect(() => {
+    if (view.awaitingUrl && threadId === null && view.threadId) onThreadChange(view.threadId);
+  }, [view.awaitingUrl, view.threadId, threadId, onThreadChange]);
 
   const activeThread = threads?.find((t) => t.id === threadId) ?? null;
 
@@ -191,49 +224,62 @@ export function Conversation({ client, threadId, onThreadChange }: Props) {
   const evidenceCitations = lastAssistant?.citations ?? [];
 
   async function handleSubmit(text: string) {
+    // Ask in the conversation on screen, which may be a just-saved thread
+    // the URL hasn't caught up with yet.
+    const askThreadId = current ? view.threadId : null;
     const userMsg: Message = {
-      id: `u-${Date.now()}`,
+      id: nextMessageId("u"),
       role: "user",
       text,
       timestamp: new Date().toISOString(),
     };
-    setMessages((m) => [...m, userMsg]);
+    // If another thread was opened while waiting, the reply doesn't belong there.
+    const holdsQuestion = (v: View) => v.messages.some((m) => m.id === userMsg.id);
+    setView((v) =>
+      shows(v, threadId)
+        ? { ...v, messages: [...v.messages, userMsg] }
+        : { ...NEW_VIEW, messages: [userMsg] },
+    );
     setLoading(true);
     setStreamStatus("Request accepted");
     const t0 = performance.now();
     try {
       const result = await askStream(
-        { question: text, client_id: client.id, thread_id: threadId },
+        { question: text, client_id: client.id, thread_id: askThreadId },
         (event) => setStreamStatus(statusForEvent(event)),
       );
       const latencyMs = result.trust.total_ms ?? Math.round(performance.now() - t0);
-      setMessages((m) => [
-        ...m.map((item) =>
-          item.id === userMsg.id ? { ...item, interpretedAs: result.retrieval_question } : item,
-        ),
-        assistantMessage(result, new Date().toISOString(), latencyMs),
-      ]);
-      if (!threadId && result.thread_id) {
-        startedThreadRef.current = result.thread_id;
-        onThreadChange(result.thread_id);
-      }
+      const reply = assistantMessage(result, new Date().toISOString(), latencyMs);
+      const startedThread = askThreadId === null ? result.thread_id : null;
+      setView((v) =>
+        holdsQuestion(v)
+          ? {
+              threadId: startedThread ?? v.threadId,
+              awaitingUrl: startedThread ? true : v.awaitingUrl,
+              messages: [
+                ...v.messages.map((item) =>
+                  item.id === userMsg.id ? { ...item, interpretedAs: result.retrieval_question } : item,
+                ),
+                reply,
+              ],
+            }
+          : v,
+      );
       void refreshThreads();
       toast.success(`Decision ${result.outcome}`, {
         description: `Logged as ${result.decision_id.slice(0, 8)}.`,
       });
     } catch (err) {
       const { title, message } = describeAskError(err);
-      setMessages((m) => [
-        ...m,
-        {
-          id: `err-${Date.now()}`,
-          role: "assistant",
-          error: message,
-          errorTitle: title,
-          retryQuestion: text,
-          timestamp: new Date().toISOString(),
-        },
-      ]);
+      const errorMsg: Message = {
+        id: nextMessageId("err"),
+        role: "assistant",
+        error: message,
+        errorTitle: title,
+        retryQuestion: text,
+        timestamp: new Date().toISOString(),
+      };
+      setView((v) => (holdsQuestion(v) ? { ...v, messages: [...v.messages, errorMsg] } : v));
       toast.error(title, {
         description: message,
       });
@@ -247,11 +293,12 @@ export function Conversation({ client, threadId, onThreadChange }: Props) {
     decisionId: string,
     patch: Partial<Pick<Message, "escalation" | "escalating">>,
   ) {
-    setMessages((items) =>
-      items.map((item) =>
+    setView((v) => ({
+      ...v,
+      messages: v.messages.map((item) =>
         item.result?.decision_id === decisionId ? { ...item, ...patch } : item,
       ),
-    );
+    }));
   }
 
   async function handleEscalate(result: AskResponse) {
@@ -294,7 +341,7 @@ export function Conversation({ client, threadId, onThreadChange }: Props) {
   }
 
   function startNewThread() {
-    startedThreadRef.current = null;
+    setView(NEW_VIEW);
     onThreadChange(null);
   }
 
@@ -328,10 +375,7 @@ export function Conversation({ client, threadId, onThreadChange }: Props) {
               <li key={t.id}>
                 <button
                   type="button"
-                  onClick={() => {
-                    startedThreadRef.current = null;
-                    onThreadChange(t.id);
-                  }}
+                  onClick={() => onThreadChange(t.id)}
                   className={cn(
                     "w-full rounded-md px-2.5 py-1.5 text-left transition-colors",
                     t.id === threadId ? "bg-accent/60" : "hover:bg-accent/30",
@@ -388,7 +432,8 @@ export function Conversation({ client, threadId, onThreadChange }: Props) {
                   key={m.id}
                   title={m.errorTitle}
                   message={m.error}
-                  onRetry={m.retryQuestion ? () => handleSubmit(m.retryQuestion!) : undefined}
+                  retryQuestion={m.retryQuestion}
+                  onRetry={handleSubmit}
                 />
               ) : (
                 <AssistantMessage
@@ -470,11 +515,13 @@ function ThreadStatusDot({ status }: { status: ThreadSummary["status"] }) {
 function InlineErrorMessage({
   title = "GlassBox · request failed",
   message,
+  retryQuestion,
   onRetry,
 }: {
   title?: string;
   message: string;
-  onRetry?: () => void;
+  retryQuestion?: string;
+  onRetry: (question: string) => void;
 }) {
   return (
     <div className="rounded-r-lg border border-l-[3px] border-l-destructive bg-card p-4 text-sm">
@@ -485,12 +532,12 @@ function InlineErrorMessage({
         {message}
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        {onRetry ? (
+        {retryQuestion ? (
           <Button
             variant="outline"
             size="sm"
             className="h-7 gap-1.5 rounded-md text-xs"
-            onClick={onRetry}
+            onClick={() => onRetry(retryQuestion)}
           >
             <RotateCcw className="h-3 w-3" />
             Retry
@@ -539,7 +586,7 @@ function EmptyState({ clientName }: { clientName: string }) {
         <ScanSearch className="h-5 w-5" />
       </div>
       <h2 className="font-serif text-[18px] font-semibold tracking-tight">
-        Ask anything within {clientName}'s mandate.
+        Ask anything within {clientName}&apos;s mandate.
       </h2>
       <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted-foreground">
         Every answer cites the IPS clauses, factsheets, and regulatory snippets it relied on.

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, Suspense, useEffect, useState } from "react";
+import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Loader2, ScanSearch, ShieldAlert } from "lucide-react";
@@ -11,6 +11,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ApiError, MfaRequiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { useBrowserStorage, writeBrowserStorage } from "@/lib/use-browser-storage";
+import { useIsClient } from "@/lib/use-is-client";
+import { useNow } from "@/lib/use-now";
 
 type PendingMfa = {
   email: string;
@@ -29,18 +32,14 @@ function safeRedirect(target: string | null): string {
   return target;
 }
 
-function loadPending(): PendingMfa | null {
+function readPending(raw: string | null, nowMs: number | null): PendingMfa | null {
+  if (!raw) return null;
   try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
     const parsed = JSON.parse(raw) as PendingMfa;
-    if (!parsed.mfa_token || Date.now() - parsed.created_at > MAX_AGE_MS) {
-      sessionStorage.removeItem(STORAGE_KEY);
-      return null;
-    }
+    if (!parsed.mfa_token) return null;
+    if (nowMs !== null && nowMs - parsed.created_at > MAX_AGE_MS) return null;
     return parsed;
   } catch {
-    sessionStorage.removeItem(STORAGE_KEY);
     return null;
   }
 }
@@ -49,20 +48,28 @@ function MfaInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { login } = useAuth();
-  const [pending, setPending] = useState<PendingMfa | null>(null);
+  const raw = useBrowserStorage("session", STORAGE_KEY);
+  const nowMs = useNow();
+  const isClient = useIsClient();
+  const pending = useMemo(() => readPending(raw, nowMs), [raw, nowMs]);
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set when we navigate away, so clearing the challenge on the way out
+  // doesn't flash the "expired" notice.
+  const [leaving, setLeaving] = useState(false);
 
   const next = safeRedirect(searchParams?.get("next") ?? pending?.next ?? null);
+  const notice =
+    error ??
+    (isClient && !pending && !leaving
+      ? "Your MFA challenge expired. Sign in again to continue."
+      : null);
 
+  // An expired or unreadable challenge can't be used; drop it.
   useEffect(() => {
-    const nextPending = loadPending();
-    setPending(nextPending);
-    if (!nextPending) {
-      setError("Your MFA challenge expired. Sign in again to continue.");
-    }
-  }, []);
+    if (raw !== null && !pending) writeBrowserStorage("session", STORAGE_KEY, null);
+  }, [raw, pending]);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -71,7 +78,8 @@ function MfaInner() {
     setLoading(true);
     try {
       await login({ mfa_token: pending.mfa_token, mfa_code: code });
-      sessionStorage.removeItem(STORAGE_KEY);
+      setLeaving(true);
+      writeBrowserStorage("session", STORAGE_KEY, null);
       toast.success("Signed in");
       router.replace(next);
     } catch (err) {
@@ -112,13 +120,13 @@ function MfaInner() {
           Enter the current authenticator code for {pending?.email ?? "your account"}.
         </p>
 
-        {error ? (
+        {notice ? (
           <div
             role="alert"
             className="mt-4 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive"
           >
             <ShieldAlert className="mt-0.5 h-3.5 w-3.5" />
-            <span>{error}</span>
+            <span>{notice}</span>
           </div>
         ) : null}
 
@@ -144,7 +152,8 @@ function MfaInner() {
               type="button"
               variant="outline"
               onClick={() => {
-                sessionStorage.removeItem(STORAGE_KEY);
+                setLeaving(true);
+                writeBrowserStorage("session", STORAGE_KEY, null);
                 router.replace(`/login?next=${encodeURIComponent(next)}`);
               }}
               className="h-10 w-full rounded-md gap-1.5"

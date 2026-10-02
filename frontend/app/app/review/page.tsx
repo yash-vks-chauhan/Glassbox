@@ -50,8 +50,8 @@ const OUTCOMES: Array<{ id: OutcomeKind | "all"; label: string }> = [
 export default function ReviewQueuePage() {
   const { clients } = useClients();
   const { user } = useAuth();
-  const getClient = (id: string | null | undefined) =>
-    id ? clients.find((c) => c.id === id) : undefined;
+  const clientsById = useMemo(() => new Map(clients.map((c) => [c.id, c])), [clients]);
+  const getClient = (id: string | null | undefined) => (id ? clientsById.get(id) : undefined);
   const [escalations, setEscalations] = useState<Escalation[] | null>(null);
   const [filter, setFilter] = useState<OutcomeKind | "all">("flagged");
   const [clientId, setClientId] = useState<string>("all");
@@ -83,7 +83,7 @@ export default function ReviewQueuePage() {
         if (filter === "all" && kind === "answered") return false;
         if (clientId !== "all" && a.client_id !== clientId) return false;
         if (needle) {
-          const c = getClient(a.client_id);
+          const c = a.client_id ? clientsById.get(a.client_id) : undefined;
           return (
             (a.question ?? "").toLowerCase().includes(needle) ||
             (c?.displayName ?? "").toLowerCase().includes(needle) ||
@@ -95,7 +95,7 @@ export default function ReviewQueuePage() {
       .sort((a, b) =>
         new Date(a.sla_due_at).getTime() - new Date(b.sla_due_at).getTime(),
       );
-  }, [escalations, filter, clientId, query]);
+  }, [escalations, filter, clientId, query, clientsById]);
 
   function toggle(id: string) {
     setSelected((prev) => {

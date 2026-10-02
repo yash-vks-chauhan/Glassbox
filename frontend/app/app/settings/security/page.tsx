@@ -16,7 +16,7 @@
  *     docs/SECURITY-IMPLEMENTATION.md "deliberately NOT in this pass".
  */
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { KeyRound, Loader2, RefreshCcw, ShieldCheck, Smartphone, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -41,34 +41,36 @@ import {
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 
+function fetchByoKeys(): Promise<ByoKey[]> {
+  return listByoKeys().catch(() => []);
+}
+
+function fetchSessions(): Promise<Session[]> {
+  return listOwnSessions().catch(() => []);
+}
+
 export default function SettingsSecurityPage() {
   const { user, refreshUser, logout } = useAuth();
   const router = useRouter();
   const [byoKeys, setByoKeys] = useState<ByoKey[] | null>(null);
   const [sessions, setSessions] = useState<Session[] | null>(null);
 
-  const reloadByoKeys = useCallback(async () => {
-    try {
-      const rows = await listByoKeys();
-      setByoKeys(rows);
-    } catch {
-      setByoKeys([]);
-    }
-  }, []);
-
-  const reloadSessions = useCallback(async () => {
-    try {
-      const rows = await listOwnSessions();
-      setSessions(rows);
-    } catch {
-      setSessions([]);
-    }
-  }, []);
-
   useEffect(() => {
-    void reloadByoKeys();
-    void reloadSessions();
-  }, [reloadByoKeys, reloadSessions]);
+    let active = true;
+    fetchByoKeys().then((rows) => active && setByoKeys(rows));
+    fetchSessions().then((rows) => active && setSessions(rows));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function reloadByoKeys() {
+    setByoKeys(await fetchByoKeys());
+  }
+
+  async function reloadSessions() {
+    setSessions(await fetchSessions());
+  }
 
   return (
     <PageContainer>
@@ -244,7 +246,7 @@ function TwoFactorCard({ onChanged }: { onChanged: () => Promise<unknown> }) {
       >
         <div className="flex items-center gap-2 text-sm text-foreground/80">
           <ShieldCheck className="h-4 w-4 text-[hsl(var(--state-grounded))]" />
-          You're protected with an authenticator app.
+          You&apos;re protected with an authenticator app.
         </div>
       </Card>
     );
@@ -266,7 +268,7 @@ function TwoFactorCard({ onChanged }: { onChanged: () => Promise<unknown> }) {
             ))}
           </ul>
           <Button variant="outline" onClick={() => setRecovery(null)} className="h-9 w-full rounded-md">
-            I've saved them
+            I&apos;ve saved them
           </Button>
         </div>
       ) : phase === "verifying" && secret && otpauth ? (

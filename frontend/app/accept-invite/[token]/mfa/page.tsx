@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, use, useEffect, useState } from "react";
+import { FormEvent, use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Loader2, ScanSearch, ShieldCheck } from "lucide-react";
@@ -12,6 +12,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ApiError, completeMfaSetup, setAccessToken } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { useBrowserStorage, writeBrowserStorage } from "@/lib/use-browser-storage";
+import { useIsClient } from "@/lib/use-is-client";
+import { useNow } from "@/lib/use-now";
 
 type PendingMfa = {
   mfa_setup_token: string;
@@ -24,6 +27,24 @@ type PendingMfa = {
 // older client-side so we don't make the user type a code that's already
 // destined to be rejected.
 const MAX_AGE_MS = 9 * 60 * 1000;
+const STORAGE_KEY = "glassbox.pending_invite_mfa";
+
+type Challenge =
+  | { status: "missing" }
+  | { status: "expired" }
+  | { status: "ready"; pending: PendingMfa };
+
+function readChallenge(raw: string | null, nowMs: number | null): Challenge {
+  if (!raw) return { status: "missing" };
+  try {
+    const parsed = JSON.parse(raw) as PendingMfa;
+    if (!parsed.mfa_setup_token) return { status: "missing" };
+    if (nowMs !== null && nowMs - parsed.created_at > MAX_AGE_MS) return { status: "expired" };
+    return { status: "ready", pending: parsed };
+  } catch {
+    return { status: "missing" };
+  }
+}
 
 export default function AcceptInviteMfaPage({
   params,
@@ -33,31 +54,31 @@ export default function AcceptInviteMfaPage({
   const { token } = use(params);
   const router = useRouter();
   const { refreshUser } = useAuth();
-  const [pending, setPending] = useState<PendingMfa | null>(null);
+  const raw = useBrowserStorage("session", STORAGE_KEY);
+  const nowMs = useNow();
+  const isClient = useIsClient();
+  const challenge = useMemo(() => readChallenge(raw, nowMs), [raw, nowMs]);
+  const pending = challenge.status === "ready" ? challenge.pending : null;
   const [code, setCode] = useState("");
   const [recovery, setRecovery] = useState<string[] | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Remember an expiry: the stale entry is removed below, and the notice
+  // has to outlive it.
+  const [expired, setExpired] = useState(false);
+  if (challenge.status === "expired" && !expired) setExpired(true);
 
+  // The setup secret is single-use; drop it once it can't be used.
   useEffect(() => {
-    const raw = sessionStorage.getItem("glassbox.pending_invite_mfa");
-    if (!raw) {
-      router.replace(`/accept-invite/${token}`);
-      return;
-    }
-    try {
-      const parsed = JSON.parse(raw) as PendingMfa;
-      if (Date.now() - parsed.created_at > MAX_AGE_MS) {
-        sessionStorage.removeItem("glassbox.pending_invite_mfa");
-        setError("Your enrolment session expired. Ask for a fresh invitation.");
-        return;
-      }
-      setPending(parsed);
-    } catch {
-      sessionStorage.removeItem("glassbox.pending_invite_mfa");
+    if (raw !== null && !pending) writeBrowserStorage("session", STORAGE_KEY, null);
+  }, [raw, pending]);
+
+  // No challenge to finish: start over from the invitation link.
+  useEffect(() => {
+    if (isClient && challenge.status === "missing" && !expired && !recovery) {
       router.replace(`/accept-invite/${token}`);
     }
-  }, [router, token]);
+  }, [isClient, challenge.status, expired, recovery, router, token]);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -69,8 +90,8 @@ export default function AcceptInviteMfaPage({
       // Backend has now flipped mfa_enrolled and set the refresh cookie.
       // Stash the access token + hydrate the auth context.
       setAccessToken(result.access_token);
-      sessionStorage.removeItem("glassbox.pending_invite_mfa");
       setRecovery(result.recovery_codes);
+      writeBrowserStorage("session", STORAGE_KEY, null);
       await refreshUser();
       toast.success("Signed in", { description: "MFA enrolment complete." });
     } catch (err) {
@@ -146,9 +167,12 @@ export default function AcceptInviteMfaPage({
                   </div>
                   <details className="text-xs text-muted-foreground">
                     <summary className="cursor-pointer select-none">
-                      Can't scan? Enter this setup key manually
+                      Can&apos;t scan? Enter this setup key manually
                     </summary>
-                    <div className="mt-2 rounded-md border bg-muted/30 p-3 font-mono text-xs break-all select-all">
+                    <div
+                      data-testid="mfa-setup-key"
+                      className="mt-2 rounded-md border bg-muted/30 p-3 font-mono text-xs break-all select-all"
+                    >
                       {pending.mfa_secret}
                     </div>
                   </details>
@@ -190,9 +214,9 @@ export default function AcceptInviteMfaPage({
                   )}
                 </Button>
               </form>
-            ) : error ? (
+            ) : expired ? (
               <div role="alert" className="mt-6 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-                {error}
+                Your enrolment session expired. Ask for a fresh invitation.
               </div>
             ) : (
               <div className="mt-6 text-sm text-muted-foreground">Loading…</div>

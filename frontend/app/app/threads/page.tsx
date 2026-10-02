@@ -29,16 +29,20 @@ const STATUS_TONE: Record<ThreadStatus, string> = {
 
 export default function ThreadsPage() {
   const { clients } = useClients();
-  const [threads, setThreads] = useState<ThreadSummary[] | null>(null);
   const [status, setStatus] = useState<ThreadStatus | "all">("all");
   const [query, setQuery] = useState("");
+  const [loaded, setLoaded] = useState<{ status: ThreadStatus | "all"; rows: ThreadSummary[] } | null>(
+    null,
+  );
+  // A list fetched for another status filter reads as loading.
+  const threads = loaded?.status === status ? loaded.rows : null;
 
   useEffect(() => {
     let active = true;
-    setThreads(null);
-    listThreads({ status: status === "all" ? undefined : status, limit: 200 })
-      .then((rows) => active && setThreads(rows))
-      .catch(() => active && setThreads([]));
+    listThreads({ status: status === "all" ? undefined : status, limit: 200 }).then(
+      (rows) => active && setLoaded({ status, rows }),
+      () => active && setLoaded({ status, rows: [] }),
+    );
     return () => {
       active = false;
     };

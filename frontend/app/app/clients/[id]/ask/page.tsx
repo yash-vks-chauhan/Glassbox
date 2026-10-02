@@ -47,7 +47,13 @@ function ClientAsk({ id }: { id: string }) {
   return (
     <>
       <ClientContextBar client={client} activeTab="ask" />
-      <Conversation client={client} threadId={threadId} onThreadChange={onThreadChange} />
+      {/* Keyed by client: another client's page is a separate conversation. */}
+      <Conversation
+        key={client.id}
+        client={client}
+        threadId={threadId}
+        onThreadChange={onThreadChange}
+      />
     </>
   );
 }

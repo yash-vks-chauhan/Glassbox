@@ -40,6 +40,25 @@ export function currentTotp(secret: string) {
   ]);
 }
 
+/** Invite a fresh user to the demo workspace; returns the invitation token. */
+export function createInvite(role: "advisor" | "compliance" | "admin") {
+  return runPython([
+    "-c",
+    [
+      "import sys, uuid",
+      "from app.core.auth.service import invite_user",
+      "from app.db import SessionLocal",
+      "from app.models_db import DEMO_TENANT_ID",
+      "db = SessionLocal()",
+      "email = 'e2e-invite-' + uuid.uuid4().hex[:8] + '@example.com'",
+      "token = invite_user(db, tenant_id=DEMO_TENANT_ID, email=email, role=sys.argv[1], invited_by_user_id=None)",
+      "db.commit()",
+      "print(token)",
+    ].join("; "),
+    role,
+  ]);
+}
+
 export function resetRateLimitBuckets() {
   runPython([
     "-c",

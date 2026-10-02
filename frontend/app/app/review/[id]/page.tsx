@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useCallback, useEffect, useState } from "react";
+import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   AlertCircle,
@@ -31,6 +31,7 @@ import {
   type ReviewReasonCode,
 } from "@/lib/api";
 import { useClients } from "@/lib/clients-hooks";
+import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/utils";
 
 const ASSESSMENTS: Array<{ id: ReviewAssessment; label: string }> = [
@@ -110,28 +111,37 @@ export default function ReviewDetail({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  // Keyed by decision so state (including a saved draft) starts fresh for each.
+  return <ReviewDecision key={id} id={id} />;
+}
+
+function ReviewDecision({ id }: { id: string }) {
   const { clients } = useClients();
   const [audit, setAudit] = useState<AuditDetail | null | "loading">("loading");
-  const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
+  // The form only renders after the decision loads in the browser, so
+  // reading the device-local draft here can't cause a hydration mismatch.
+  const [draft, setDraft] = useState<Draft>(() => loadDraft(id) ?? EMPTY_DRAFT);
   const [submitting, setSubmitting] = useState(false);
-  const [nowMs, setNowMs] = useState<number | null>(null);
+  const nowMs = useNow();
 
-  const reload = useCallback(async () => {
+  useEffect(() => {
+    let active = true;
+    getAudit(id).then(
+      (row) => active && setAudit(row),
+      () => active && setAudit(null),
+    );
+    return () => {
+      active = false;
+    };
+  }, [id]);
+
+  async function reload() {
     try {
       setAudit(await getAudit(id));
     } catch {
       setAudit(null);
     }
-  }, [id]);
-
-  useEffect(() => {
-    void reload();
-    const saved = loadDraft(id);
-    if (saved) setDraft(saved);
-    setNowMs(Date.now());
-    const t = window.setInterval(() => setNowMs(Date.now()), 30_000);
-    return () => window.clearInterval(t);
-  }, [id, reload]);
+  }
 
   if (audit === "loading") {
     return (
@@ -517,7 +527,7 @@ export default function ReviewDetail({
           <div className="mt-3 rounded-xl border bg-card/40 p-3 text-[11px] text-muted-foreground">
             <AlertCircle className="mr-1.5 inline h-3 w-3" />
             The decision itself never changes. Reviews and corrections are appended alongside it,
-            and the person who asked a question can't review it.
+            and the person who asked a question can&apos;t review it.
           </div>
         </aside>
       </div>

@@ -15,7 +15,7 @@
  * is belt-and-braces).
  */
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Loader2, MailPlus, RefreshCcw, ShieldOff, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -39,39 +39,50 @@ import { hasAtLeastRole, useAuth } from "@/lib/auth-context";
 
 const ROLES = ["advisor", "compliance", "admin", "owner"] as const;
 
+async function fetchRoster(): Promise<{ users: AdminUser[]; invites: AdminInvitation[] }> {
+  try {
+    const [users, invites] = await Promise.all([listAdminUsers(), listAdminInvitations()]);
+    return { users, invites };
+  } catch (err) {
+    // 403 means we don't have access; bail silently — the card will hide.
+    if (!(err instanceof ApiError) || err.status !== 403) {
+      toast.error("Could not load users", {
+        description: err instanceof Error ? err.message : undefined,
+      });
+    }
+    return { users: [], invites: [] };
+  }
+}
+
 export function UsersCard() {
   const { user, role } = useAuth();
+  const isAdmin = hasAtLeastRole(role, "admin");
   const [users, setUsers] = useState<AdminUser[] | null>(null);
   const [invites, setInvites] = useState<AdminInvitation[] | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const reload = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [u, i] = await Promise.all([listAdminUsers(), listAdminInvitations()]);
-      setUsers(u);
-      setInvites(i);
-    } catch (err) {
-      // 403 means we don't have access; bail silently — the card will hide.
-      if (!(err instanceof ApiError) || err.status !== 403) {
-        toast.error("Could not load users", {
-          description: err instanceof Error ? err.message : undefined,
-        });
-      }
-      setUsers([]);
-      setInvites([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    if (hasAtLeastRole(role, "admin")) {
-      void reload();
-    }
-  }, [role, reload]);
+    if (!isAdmin) return;
+    let active = true;
+    fetchRoster().then((roster) => {
+      if (!active) return;
+      setUsers(roster.users);
+      setInvites(roster.invites);
+    });
+    return () => {
+      active = false;
+    };
+  }, [isAdmin]);
 
-  if (!hasAtLeastRole(role, "admin")) return null;
+  async function reload() {
+    setLoading(true);
+    const roster = await fetchRoster();
+    setUsers(roster.users);
+    setInvites(roster.invites);
+    setLoading(false);
+  }
+
+  if (!isAdmin) return null;
 
   return (
     <section className="rounded-lg border bg-card p-5">
