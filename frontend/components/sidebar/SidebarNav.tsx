@@ -173,7 +173,7 @@ export function SidebarBrand() {
   const { user } = useAuth();
   const tenant = user?.tenant_name || user?.tenant_slug || "Audit-grade AI";
   return (
-    <div className="px-3 pt-4">
+    <div className="px-3 pb-4 pt-4">
       <Link href="/app/home" className="flex items-center gap-2.5">
         <span
           className="flex h-7 w-7 items-center justify-center rounded-md text-primary-foreground"

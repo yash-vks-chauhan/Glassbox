@@ -86,7 +86,7 @@ export function UsersCard() {
 
   return (
     <section className="rounded-lg border bg-card p-5">
-      <header className="mb-4 flex items-center justify-between">
+      <header className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             Users
@@ -109,14 +109,13 @@ export function UsersCard() {
         ) : users.length === 0 ? (
           <div className="text-xs text-muted-foreground">No users yet.</div>
         ) : (
-          <div className="overflow-hidden rounded-md border">
+          <div className="overflow-x-auto rounded-md border">
             <table className="w-full text-sm">
               <thead className="bg-muted/40 text-left text-xs uppercase tracking-[0.12em] text-muted-foreground">
                 <tr>
-                  <th className="px-3 py-2">Email</th>
+                  <th className="px-3 py-2">User</th>
                   <th className="px-3 py-2">Role</th>
                   <th className="px-3 py-2">MFA</th>
-                  <th className="px-3 py-2">Last login</th>
                   <th className="px-3 py-2 text-right">Actions</th>
                 </tr>
               </thead>
@@ -304,10 +303,14 @@ function UserRow({
   return (
     <tr>
       <td className="px-3 py-2">
-        <div className="font-medium">{row.email}</div>
+        <div className="font-medium [overflow-wrap:anywhere]">{row.email}</div>
         <div className="text-[11px] text-muted-foreground">
           {row.locked ? "locked" : "active"}
           {isSelf ? " · you" : ""}
+          {" · "}
+          {row.last_login_at
+            ? `last sign-in ${new Date(row.last_login_at).toLocaleString()}`
+            : "never signed in"}
         </div>
       </td>
       <td className="px-3 py-2">
@@ -334,9 +337,6 @@ function UserRow({
         >
           {row.mfa_enrolled ? "on" : "off"}
         </span>
-      </td>
-      <td className="px-3 py-2 text-xs text-muted-foreground">
-        {row.last_login_at ? new Date(row.last_login_at).toLocaleString() : "—"}
       </td>
       <td className="px-3 py-2 text-right">
         {busy ? (

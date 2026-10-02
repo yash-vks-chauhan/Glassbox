@@ -236,7 +236,11 @@ def configured_routes(include_local: bool = True) -> list[ModelRoute]:
         if settings.local_evidence_mode:
             routes.append(_local_evidence_route())
         routes.append(_local_route())
-    return routes
+    # MODEL_CANDIDATE_ROUTES may already name a local route; list each once.
+    unique: dict[str, ModelRoute] = {}
+    for route in routes:
+        unique.setdefault(route.spec, route)
+    return list(unique.values())
 
 
 def route_from_spec(route_spec: str) -> ModelRoute:

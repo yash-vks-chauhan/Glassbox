@@ -855,6 +855,19 @@ def test_p11d_model_health_marks_listed_but_unusable_chat(monkeypatch):
     assert "chat completion failed" in health["smoke_error"]
 
 
+def test_configured_routes_list_each_route_once(monkeypatch):
+    """A candidate list that already names the local evidence engine (the
+    no-paid setup) must not show it twice on the admin page."""
+    monkeypatch.setenv("MODEL_CANDIDATE_ROUTES", "local:glassbox-evidence-engine")
+    monkeypatch.setenv("GLASSBOX_LOCAL_EVIDENCE_MODE", "1")
+    get_settings.cache_clear()
+    try:
+        specs = [route.spec for route in model_router.configured_routes(include_local=True)]
+    finally:
+        get_settings.cache_clear()
+    assert specs == ["local:glassbox-evidence-engine", "local:glassbox-deterministic"]
+
+
 def test_p11e_ask_persists_actual_model_route():
     ingest()
     headers = _auth_headers("advisor")

@@ -213,8 +213,10 @@ export default function AdminPage() {
         description="Models, inference keys, determinism runs, and access — the controls advisors should never see."
       />
 
-      <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-        <div className="space-y-4">
+      {/* minmax(0, …): wide content (the users table, hashes) must not push a
+          column past its share of the page. */}
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-4">
           <Section icon={Cpu} title="Inference">
             {statusError ? (
               <StatusError message={statusError} />
@@ -461,8 +463,11 @@ export default function AdminPage() {
                     {leaderboard.thresholds.max_p95_latency_ms}ms
                   </span>
                 </div>
-                <div className="overflow-hidden rounded-lg border">
-                  <div className="grid grid-cols-[minmax(0,1.2fr)_54px_56px_56px_56px_56px_56px_56px_62px_68px_56px_88px] gap-px bg-border text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                {/* Twelve columns don't fit the column at most widths; scroll
+                    sideways instead of clipping the labels. */}
+                <div className="overflow-x-auto rounded-lg border">
+                  <div className="min-w-[960px]">
+                  <div className="grid grid-cols-[minmax(160px,1.2fr)_64px_76px_64px_76px_64px_70px_64px_76px_70px_64px_96px] gap-px bg-border text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
                     <Cell>Model</Cell>
                     <Cell align="right">Score</Cell>
                     <Cell align="right">Outcome</Cell>
@@ -480,7 +485,7 @@ export default function AdminPage() {
                     <button
                       key={row.route}
                       className={cn(
-                        "grid w-full grid-cols-[minmax(0,1.2fr)_54px_56px_56px_56px_56px_56px_56px_62px_68px_56px_88px] gap-px bg-border text-left text-xs",
+                        "grid w-full grid-cols-[minmax(160px,1.2fr)_64px_76px_64px_76px_64px_70px_64px_76px_70px_64px_96px] gap-px bg-border text-left text-xs",
                         selectedModel?.route === row.route && "outline outline-2 outline-primary/30",
                       )}
                       onClick={() => setSelectedRoute(row.route)}
@@ -518,6 +523,7 @@ export default function AdminPage() {
                       </Cell>
                     </button>
                   ))}
+                  </div>
                 </div>
               </div>
             )}
@@ -592,8 +598,13 @@ export default function AdminPage() {
                   </div>
                 )}
               </div>
-            ) : (
+            ) : leaderboard === null ? (
               <Skeleton className="h-36 w-full rounded-md" />
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                No evaluation results yet. Run the fast or full gate above to score a model route by
+                category and see its failures here.
+              </p>
             )}
           </Section>
 
@@ -665,7 +676,7 @@ export default function AdminPage() {
           <DeterminismCard />
         </div>
 
-        <aside className="space-y-4">
+        <aside className="min-w-0 space-y-4">
           <UsersCard />
           <AuditVerifyCard />
 
@@ -797,7 +808,7 @@ function AuditVerifyCard() {
           <Row
             label="Tail hash"
             value={
-              <code className="max-w-[150px] truncate font-mono text-[11px]">
+              <code className="block truncate font-mono text-[11px]" title={report.tail_hash ?? undefined}>
                 {report.tail_hash ?? "—"}
               </code>
             }
@@ -832,8 +843,8 @@ function AuditVerifyCard() {
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-3 text-sm">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="text-right">{value}</span>
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className="min-w-0 text-right">{value}</span>
     </div>
   );
 }
