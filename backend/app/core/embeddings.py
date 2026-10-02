@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from functools import lru_cache
 
 import numpy as np
@@ -8,12 +9,20 @@ import numpy as np
 from app.config import get_settings
 
 
+logger = logging.getLogger(__name__)
+
+
 class Embedder:
+    #: What /admin/system reports as the embedding backend in use.
+    label = "unknown"
+
     def encode(self, texts: list[str]) -> np.ndarray:
         raise NotImplementedError
 
 
 class HashEmbedder(Embedder):
+    label = "hash"
+
     def __init__(self, dimensions: int = 512) -> None:
         self.dimensions = dimensions
 
@@ -34,6 +43,7 @@ class SentenceTransformerEmbedder(Embedder):
         from sentence_transformers import SentenceTransformer
 
         self.model = SentenceTransformer(model_name)
+        self.label = f"sentence-transformers ({model_name})"
 
     def encode(self, texts: list[str]) -> np.ndarray:
         vectors = self.model.encode(texts, normalize_embeddings=True)
@@ -61,6 +71,14 @@ def get_embedder() -> Embedder:
         try:
             return SentenceTransformerEmbedder(settings.embed_model)
         except Exception:
+            # Usually sentence-transformers isn't installed (it's optional:
+            # requirements-embeddings.txt). Retrieval still works, on hashes.
+            logger.warning(
+                "embedding_backend_unavailable backend=%s model=%s; using hash embeddings",
+                settings.embedding_backend,
+                settings.embed_model,
+                exc_info=True,
+            )
             return HashEmbedder()
     return HashEmbedder()
 

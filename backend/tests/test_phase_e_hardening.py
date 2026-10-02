@@ -675,6 +675,7 @@ def test_admin_system_reports_the_live_configuration(client, no_auth_override, m
     guardrails = {item["key"]: item for item in body["guardrails"]}
     assert guardrails["advisor_byo_keys"]["enabled"] is True
     assert guardrails["claim_verification"]["detail"] == "mode: heuristic"
+    assert body["embedding_backend"] == "hash"
 
 
 def test_admin_system_is_admin_only(client, no_auth_override):

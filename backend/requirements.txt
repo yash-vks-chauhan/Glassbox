@@ -1,22 +1,22 @@
-fastapi
-uvicorn
-pydantic-settings
-sqlalchemy
-alembic
-psycopg[binary]
-chromadb
-sentence-transformers
-scikit-learn
-joblib
-httpx
-python-dotenv
-numpy
-argon2-cffi
-pyjwt
-pyotp
-email-validator
-cryptography
-structlog
+# Runtime dependencies of the API. Lower bounds are the versions the test
+# suite runs against; upper bounds stop before the next major version.
+fastapi>=0.136,<1
+uvicorn>=0.47,<1
+pydantic-settings>=2.14,<3
+sqlalchemy>=2.0.49,<3
+alembic>=1.18,<2
+psycopg[binary]>=3.3,<4
+# The trained scorers in app/ml/artifacts are pickles; keep scikit-learn on
+# the minor version that wrote them (retrain before moving it).
+scikit-learn~=1.8.0
+joblib>=1.5,<2
+httpx>=0.28,<1
+python-dotenv>=1.2,<2
+numpy>=2.4,<3
+argon2-cffi>=25.1
+pyjwt>=2.13,<3
+pyotp>=2.9,<3
+email-validator>=2.3,<3
+cryptography>=48
+structlog>=25.5
 fpdf2>=2.8,<3
-pytest
-pytest-cov

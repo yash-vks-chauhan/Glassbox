@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app import __version__
 from app.config import get_settings
 from app.core.auth.deps import require_role
+from app.core.embeddings import get_embedder
 from app.core.model_router import runtime_status
 from app.db import get_db
 from app.models_db import User
@@ -35,7 +36,9 @@ def system_info(
         database=db.get_bind().dialect.name,
         inference_mode=str(runtime["mode"]),
         inference_route=runtime.get("active_route"),
-        embedding_backend=settings.embedding_backend,
+        # The embedder in use, which falls back to hashes when the
+        # configured backend can't load.
+        embedding_backend=get_embedder().label,
         rate_limits=RateLimitInfo(
             auth_per_min=settings.rate_limit_auth_per_min,
             ask_per_min=settings.rate_limit_ask_per_min,
