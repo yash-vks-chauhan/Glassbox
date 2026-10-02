@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -17,6 +18,10 @@ class LLMUnavailable(RuntimeError):
 
 class ProductionModelNotApproved(LLMUnavailable):
     pass
+
+
+LOCAL_EVIDENCE_ROUTE = "local:glassbox-evidence-engine"
+LOCAL_EVIDENCE_MODEL = "glassbox-evidence-engine"
 
 
 PLACEHOLDER_OPENROUTER_KEYS = {
@@ -41,7 +46,7 @@ class ModelRoute:
     @property
     def spec(self) -> str:
         if self.provider == "local":
-            return "local:glassbox-deterministic"
+            return f"local:{self.model}"
         return f"{self.provider}:{self.model}"
 
 
@@ -52,6 +57,23 @@ class ModelPromptProfile:
     max_output_tokens: int
     json_mode: bool
     streaming: bool
+
+
+@dataclass(frozen=True)
+class RoutedChatResult:
+    content: str
+    route: str
+    provider: str
+    model: str
+    latency_ms: int
+    attempts: int
+    fallback_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class _ProviderChatResult:
+    content: str
+    attempts: int
 
 
 _HEALTH_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
@@ -74,10 +96,33 @@ def chat_with_router(
     model: str | None = None,
     api_key: str | None = None,
     enforce_production_gate: bool = True,
+    json_mode: bool = False,
 ) -> str:
+    return chat_with_router_result(
+        messages,
+        local_chat=local_chat,
+        temperature=temperature,
+        model=model,
+        api_key=api_key,
+        enforce_production_gate=enforce_production_gate,
+        json_mode=json_mode,
+    ).content
+
+
+def chat_with_router_result(
+    messages: list[dict[str, str]],
+    *,
+    local_chat,
+    temperature: float | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+    enforce_production_gate: bool = True,
+    json_mode: bool = False,
+) -> RoutedChatResult:
     settings = get_settings()
     errors: list[str] = []
     for route in routes_for_chat(model_override=model, api_key=api_key):
+        route_started = time.perf_counter()
         if not route.configured:
             errors.append(f"{route.label}: not configured")
             continue
@@ -91,28 +136,57 @@ def chat_with_router(
                 continue
         try:
             if route.provider == "local":
-                return str(local_chat(messages)).strip()
+                content = str(local_chat(messages)).strip()
+                return RoutedChatResult(
+                    content=content,
+                    route=route.spec,
+                    provider=route.provider,
+                    model=route.model,
+                    latency_ms=int((time.perf_counter() - route_started) * 1000),
+                    attempts=1,
+                    fallback_reason=route.blocked_reason,
+                )
             if route.provider == "openrouter":
-                return _openai_compatible_chat(
+                provider_result = _openai_compatible_chat_result(
                     route=route,
                     messages=messages,
                     temperature=temperature,
                     auth_header=f"Bearer {route.api_key or ''}",
                     extra_headers={"X-Title": "GlassBox"},
+                    json_mode=json_mode,
                 )
+                return _routed_result(route, provider_result, route_started)
             if route.provider == "ollama":
-                return _ollama_chat(route, messages, temperature)
+                provider_result = _ollama_chat_result(route, messages, temperature, json_mode=json_mode)
+                return _routed_result(route, provider_result, route_started)
             if route.provider == "vllm":
-                return _openai_compatible_chat(
+                provider_result = _openai_compatible_chat_result(
                     route=route,
                     messages=messages,
                     temperature=temperature,
                     auth_header=f"Bearer {route.api_key}" if route.api_key else None,
+                    json_mode=json_mode,
                 )
+                return _routed_result(route, provider_result, route_started)
             errors.append(f"{route.label}: unsupported provider")
         except LLMUnavailable as exc:
             errors.append(f"{route.label}: {exc}")
     raise LLMUnavailable("; ".join(errors) or "No model routes were available")
+
+
+def _routed_result(
+    route: ModelRoute,
+    provider_result: _ProviderChatResult,
+    route_started: float,
+) -> RoutedChatResult:
+    return RoutedChatResult(
+        content=provider_result.content,
+        route=route.spec,
+        provider=route.provider,
+        model=route.model,
+        latency_ms=int((time.perf_counter() - route_started) * 1000),
+        attempts=provider_result.attempts,
+    )
 
 
 def routes_for_chat(
@@ -159,8 +233,14 @@ def configured_routes(include_local: bool = True) -> list[ModelRoute]:
     else:
         routes = [_ollama_route(), _vllm_route(), _openrouter_route()]
     if include_local:
+        if settings.local_evidence_mode:
+            routes.append(_local_evidence_route())
         routes.append(_local_route())
-    return routes
+    # MODEL_CANDIDATE_ROUTES may already name a local route; list each once.
+    unique: dict[str, ModelRoute] = {}
+    for route in routes:
+        unique.setdefault(route.spec, route)
+    return list(unique.values())
 
 
 def route_from_spec(route_spec: str) -> ModelRoute:
@@ -177,21 +257,130 @@ def provider_health() -> list[dict[str, Any]]:
     return [_cached_health(route) for route in configured_routes(include_local=True)]
 
 
+def runtime_status(*, api_key: str | None = None, db: Session | None = None) -> dict[str, Any]:
+    settings = get_settings()
+    if settings.local_evidence_mode:
+        return {
+            "mode": "local_evidence",
+            "production_mode": settings.production_mode,
+            "active_route": LOCAL_EVIDENCE_ROUTE,
+            "fallback_enabled": False,
+            "status": "ready",
+            "message": (
+                "Private local evidence mode is active. Decisions are made from "
+                "retrieved sources, deterministic policy checks, claim verification, "
+                "and audit replay without paid model calls."
+            ),
+        }
+
+    if settings.production_mode:
+        status = production_model_status(db=db)
+        return {
+            "mode": "production" if status["product_inference_allowed"] else "blocked",
+            "production_mode": True,
+            "active_route": status["active_route"],
+            "fallback_enabled": False,
+            "status": "ready" if status["product_inference_allowed"] else "blocked",
+            "message": (
+                f"Production route active: {status['active_route']}"
+                if status["product_inference_allowed"]
+                else status["blocked_reason"]
+            ),
+        }
+
+    routes = routes_for_chat(api_key=api_key)
+    active = routes[0] if routes else _local_route()
+    if active.provider == "local":
+        mode = "demo"
+        message = "Demo inference is active; production model gating is off."
+    elif api_key and active.provider == "openrouter":
+        mode = "byo"
+        message = "Personal OpenRouter route is active with local fallback enabled."
+    else:
+        mode = "router"
+        message = f"Model router is active through {active.label} with local fallback enabled."
+    return {
+        "mode": mode,
+        "production_mode": False,
+        "active_route": active.spec,
+        "fallback_enabled": True,
+        "status": "ready" if active.configured else "degraded",
+        "message": message if active.configured else f"{active.label} is not configured; fallback may be used.",
+    }
+
+
 def production_model_status(db: Session | None = None) -> dict[str, Any]:
     settings = get_settings()
+    if settings.local_evidence_mode:
+        route = _local_evidence_route()
+        route_row = {
+            "provider": route.provider,
+            "label": route.label,
+            "model": route.model,
+            "route": route.spec,
+            "configured": True,
+            "production_eligible": True,
+            "blocked_reason": None,
+            "approved_for_inference": True,
+            "ready_for_inference": True,
+            "chat_usable": True,
+            "smoke_latency_ms": 0,
+            "smoke_error": None,
+            "approval": {
+                "approved": True,
+                "reason": "Local evidence mode does not require a paid model route.",
+                "run_id": None,
+                "created_at": None,
+            },
+            "prompt_profile": prompt_profile_for_route(route).__dict__,
+        }
+        return {
+            "production_mode": settings.production_mode,
+            "product_inference_allowed": True,
+            "active_route": route.spec,
+            "candidate_routes": [route.spec],
+            "approved_routes": [route.spec],
+            "ready_routes": [route.spec],
+            "active_route_health": {
+                "route": route.spec,
+                "healthy": True,
+                "available": True,
+                "chat_usable": True,
+                "smoke_latency_ms": 0,
+                "smoke_error": None,
+            },
+            "required_eval_questions": settings.eval_min_questions_for_production,
+            "eval_freshness_hours": settings.model_eval_freshness_hours,
+            "require_recent_eval": settings.require_recent_model_eval_in_production,
+            "approved_models_env": "APPROVED_MODELS=",
+            "blocked_reason": None,
+            "local_evidence_mode": True,
+            "model_gate_required": False,
+            "routes": [route_row],
+        }
+
     routes = configured_routes(include_local=False)
     route_rows: list[dict[str, Any]] = []
     approved_routes: list[str] = []
+    ready_routes: list[str] = []
+    active_route_health: dict[str, Any] | None = None
 
     for route in routes:
         approval = route_eval_approval(route.spec, db=db)
-        approved_for_inference = (
+        approved_by_eval = (
             route.configured
             and route.production_eligible
             and bool(approval.get("approved"))
         )
-        if approved_for_inference:
+        health = route_health(route) if route.configured and route.production_eligible else None
+        chat_usable = bool(health and health.get("chat_usable"))
+        ready_for_inference = approved_by_eval and chat_usable
+        if approved_by_eval:
             approved_routes.append(route.spec)
+        if ready_for_inference:
+            ready_routes.append(route.spec)
+            if active_route_health is None:
+                active_route_health = health
         route_rows.append(
             {
                 "provider": route.provider,
@@ -201,13 +390,17 @@ def production_model_status(db: Session | None = None) -> dict[str, Any]:
                 "configured": route.configured,
                 "production_eligible": route.production_eligible,
                 "blocked_reason": route.blocked_reason,
-                "approved_for_inference": approved_for_inference,
+                "approved_for_inference": approved_by_eval,
+                "ready_for_inference": ready_for_inference,
+                "chat_usable": chat_usable,
+                "smoke_latency_ms": health.get("smoke_latency_ms") if health else None,
+                "smoke_error": health.get("smoke_error") if health else None,
                 "approval": approval,
                 "prompt_profile": prompt_profile_for_route(route).__dict__,
             }
         )
 
-    product_inference_allowed = bool(settings.production_mode and approved_routes)
+    product_inference_allowed = bool(settings.production_mode and ready_routes)
     blocked_reason = None
     if settings.production_mode and not approved_routes:
         blocked_reason = (
@@ -215,20 +408,29 @@ def production_model_status(db: Session | None = None) -> dict[str, Any]:
             f"({settings.eval_min_questions_for_production} cases) for a configured "
             "candidate route, then promote that route."
         )
+    elif settings.production_mode and not ready_routes:
+        blocked_reason = (
+            "Approved production route is not chat-usable. Check provider health, "
+            "model availability, credentials, and the smoke error before sending advisor traffic."
+        )
     elif not settings.production_mode:
         blocked_reason = "Production mode is disabled."
 
     return {
         "production_mode": settings.production_mode,
         "product_inference_allowed": product_inference_allowed,
-        "active_route": approved_routes[0] if product_inference_allowed else None,
+        "active_route": ready_routes[0] if product_inference_allowed else None,
         "candidate_routes": [route.spec for route in routes],
         "approved_routes": approved_routes,
+        "ready_routes": ready_routes,
+        "active_route_health": active_route_health,
         "required_eval_questions": settings.eval_min_questions_for_production,
         "eval_freshness_hours": settings.model_eval_freshness_hours,
         "require_recent_eval": settings.require_recent_model_eval_in_production,
         "approved_models_env": f"APPROVED_MODELS={','.join(approved_routes)}",
         "blocked_reason": blocked_reason,
+        "local_evidence_mode": False,
+        "model_gate_required": True,
         "routes": route_rows,
     }
 
@@ -265,9 +467,13 @@ def _route_from_override(model_override: str, api_key: str | None = None) -> Mod
             return _ollama_route(model=raw_model)
         if provider == "vllm":
             return _vllm_route(model=raw_model)
-        return _local_route()
+        if raw_model == LOCAL_EVIDENCE_MODEL:
+            return _local_evidence_route()
+        return _local_route(model=raw_model or None)
     if model_override in {"local", "glassbox-local", "glassbox-deterministic"}:
         return _local_route()
+    if model_override in {"glassbox-evidence", LOCAL_EVIDENCE_MODEL, LOCAL_EVIDENCE_ROUTE}:
+        return _local_evidence_route()
     return _openrouter_route(model=model_override, api_key=api_key)
 
 
@@ -338,15 +544,27 @@ def _vllm_route(model: str | None = None) -> ModelRoute:
     )
 
 
-def _local_route() -> ModelRoute:
+def _local_route(model: str | None = None) -> ModelRoute:
     return ModelRoute(
         provider="local",
-        model="glassbox-deterministic",
+        model=model or "glassbox-deterministic",
         label="GlassBox deterministic fallback",
         base_url=None,
         configured=True,
         production_eligible=False,
         blocked_reason="deterministic fallback is for demo or outage handling, not primary product inference",
+    )
+
+
+def _local_evidence_route() -> ModelRoute:
+    return ModelRoute(
+        provider="local",
+        model=LOCAL_EVIDENCE_MODEL,
+        label="GlassBox local evidence mode",
+        base_url=None,
+        configured=True,
+        production_eligible=True,
+        blocked_reason=None,
     )
 
 
@@ -357,7 +575,28 @@ def _openai_compatible_chat(
     temperature: float | None,
     auth_header: str | None = None,
     extra_headers: dict[str, str] | None = None,
+    json_mode: bool = False,
 ) -> str:
+    return _openai_compatible_chat_result(
+        route=route,
+        messages=messages,
+        temperature=temperature,
+        auth_header=auth_header,
+        extra_headers=extra_headers,
+        json_mode=json_mode,
+    ).content
+
+
+def _openai_compatible_chat_result(
+    *,
+    route: ModelRoute,
+    messages: list[dict[str, str]],
+    temperature: float | None,
+    auth_header: str | None = None,
+    extra_headers: dict[str, str] | None = None,
+    json_mode: bool = False,
+    timeout_seconds: float | None = None,
+) -> _ProviderChatResult:
     settings = get_settings()
     headers = {"Content-Type": "application/json", **(extra_headers or {})}
     if auth_header:
@@ -368,13 +607,19 @@ def _openai_compatible_chat(
         "temperature": temperature if temperature is not None else prompt_profile_for_route(route).temperature,
         "max_tokens": settings.llm_max_output_tokens,
     }
-    data = _post_json(
+    if json_mode:
+        payload["response_format"] = {"type": "json_object"}
+    data, attempts = _post_json_result(
         f"{route.base_url}/chat/completions",
         headers=headers,
         json=payload,
+        timeout_seconds=timeout_seconds,
     )
     try:
-        return str(data["choices"][0]["message"]["content"]).strip()
+        return _ProviderChatResult(
+            content=str(data["choices"][0]["message"]["content"]).strip(),
+            attempts=attempts,
+        )
     except (KeyError, IndexError, TypeError) as exc:
         raise LLMUnavailable(f"{route.provider} returned an unexpected payload") from exc
 
@@ -382,6 +627,17 @@ def _openai_compatible_chat(
 def _ollama_chat(
     route: ModelRoute, messages: list[dict[str, str]], temperature: float | None
 ) -> str:
+    return _ollama_chat_result(route, messages, temperature, json_mode=False).content
+
+
+def _ollama_chat_result(
+    route: ModelRoute,
+    messages: list[dict[str, str]],
+    temperature: float | None,
+    *,
+    json_mode: bool = False,
+    timeout_seconds: float | None = None,
+) -> _ProviderChatResult:
     settings = get_settings()
     payload = {
         "model": route.model,
@@ -395,9 +651,18 @@ def _ollama_chat(
             "num_predict": settings.llm_max_output_tokens,
         },
     }
-    data = _post_json(f"{route.base_url}/api/chat", json=payload)
+    if json_mode:
+        payload["format"] = "json"
+    data, attempts = _post_json_result(
+        f"{route.base_url}/api/chat",
+        json=payload,
+        timeout_seconds=timeout_seconds,
+    )
     try:
-        return str(data["message"]["content"]).strip()
+        return _ProviderChatResult(
+            content=str(data["message"]["content"]).strip(),
+            attempts=attempts,
+        )
     except (KeyError, TypeError) as exc:
         raise LLMUnavailable("Ollama returned an unexpected payload") from exc
 
@@ -408,19 +673,30 @@ def _post_json(
     headers: dict[str, str] | None = None,
     json: dict[str, Any],
 ) -> dict[str, Any]:
+    payload, _ = _post_json_result(url, headers=headers, json=json)
+    return payload
+
+
+def _post_json_result(
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    json: dict[str, Any],
+    timeout_seconds: float | None = None,
+) -> tuple[dict[str, Any], int]:
     settings = get_settings()
     attempts = max(settings.llm_max_retries, 0) + 1
     last_error: Exception | None = None
     for attempt in range(attempts):
         try:
-            with httpx.Client(timeout=settings.llm_timeout_seconds) as client:
+            with httpx.Client(timeout=timeout_seconds or settings.llm_timeout_seconds) as client:
                 response = client.post(url, headers=headers, json=json)
                 if response.status_code in {408, 409, 425, 429, 500, 502, 503, 504}:
                     response.raise_for_status()
                 response.raise_for_status()
                 payload = response.json()
                 if isinstance(payload, dict):
-                    return payload
+                    return payload, attempt + 1
                 raise LLMUnavailable("provider returned a non-object payload")
         except (httpx.HTTPError, ValueError, LLMUnavailable) as exc:
             last_error = exc
@@ -444,6 +720,9 @@ def _health(route: ModelRoute) -> dict[str, Any]:
         "latency_ms": None,
         "error": None,
         "prompt_profile": prompt_profile_for_route(route).__dict__,
+        "chat_usable": False,
+        "smoke_latency_ms": None,
+        "smoke_error": None,
     }
     if not route.configured:
         result["error"] = "not configured"
@@ -464,10 +743,66 @@ def _health(route: ModelRoute) -> dict[str, Any]:
             models = _fetch_openai_models(route)
             result["healthy"] = True
             result["available"] = not models or route.model in models
+        if result["healthy"] and result["available"]:
+            smoke = _smoke_chat(route)
+            result["chat_usable"] = smoke["chat_usable"]
+            result["smoke_latency_ms"] = smoke["smoke_latency_ms"]
+            result["smoke_error"] = smoke["smoke_error"]
     except Exception as exc:
         result["error"] = str(exc)
     result["latency_ms"] = int((time.perf_counter() - started) * 1000)
     return result
+
+
+def _smoke_chat(route: ModelRoute) -> dict[str, Any]:
+    started = time.perf_counter()
+    try:
+        if route.provider == "local":
+            return {"chat_usable": True, "smoke_latency_ms": 0, "smoke_error": None}
+        messages = [
+            {"role": "system", "content": "Return only valid JSON."},
+            {"role": "user", "content": 'Return {"ok": true}.'},
+        ]
+        if route.provider in {"openrouter", "vllm"}:
+            result = _openai_compatible_chat_result(
+                route=route,
+                messages=messages,
+                temperature=0.0,
+                auth_header=(
+                    f"Bearer {route.api_key or ''}"
+                    if route.provider == "openrouter"
+                    else (f"Bearer {route.api_key}" if route.api_key else None)
+                ),
+                extra_headers={"X-Title": "GlassBox"} if route.provider == "openrouter" else None,
+                json_mode=True,
+                timeout_seconds=min(get_settings().llm_timeout_seconds, 5.0),
+            )
+        elif route.provider == "ollama":
+            result = _ollama_chat_result(
+                route,
+                messages,
+                0.0,
+                json_mode=True,
+                timeout_seconds=min(get_settings().llm_timeout_seconds, 5.0),
+            )
+        else:
+            raise LLMUnavailable("unsupported provider")
+        try:
+            payload = json.loads(result.content)
+            usable = isinstance(payload, dict) and payload.get("ok") is True
+        except ValueError:
+            usable = False
+        return {
+            "chat_usable": usable,
+            "smoke_latency_ms": int((time.perf_counter() - started) * 1000),
+            "smoke_error": None if usable else "smoke response was not valid JSON",
+        }
+    except Exception as exc:
+        return {
+            "chat_usable": False,
+            "smoke_latency_ms": int((time.perf_counter() - started) * 1000),
+            "smoke_error": str(exc),
+        }
 
 
 def _cached_health(route: ModelRoute) -> dict[str, Any]:

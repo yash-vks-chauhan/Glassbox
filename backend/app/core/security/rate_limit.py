@@ -69,7 +69,8 @@ class RateLimitDecision:
 def classify_route(path: str) -> str:
     """Map an HTTP path onto a route class. Kept as a free function so tests
     can assert on it directly."""
-    if path.startswith("/auth/"):
+    # Unauthenticated public forms share the strict auth tier.
+    if path.startswith("/auth/") or path.startswith("/public/"):
         return "auth"
     if path == "/ask" or path.startswith("/ask/"):
         return "ask"

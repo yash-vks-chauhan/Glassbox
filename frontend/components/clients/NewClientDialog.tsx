@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, X } from "lucide-react";
+import { Plus } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -97,19 +97,16 @@ export function NewClientDialog({ trigger, onCreated }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const { clients } = useClients();
-  const suggestedId = useMemo(
-    () => nextClientId(clients),
-    // Recompute on dialog open AND whenever the roster reloads — so a freshly
-    // added client doesn't collide with the suggested ID on the next reopen.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [open, clients.length],
-  );
+  const suggestedId = nextClientId(clients);
   const [form, setForm] = useState<FormState>(() => emptyForm(suggestedId));
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    if (open) setForm(emptyForm(suggestedId));
-  }, [open, suggestedId]);
+  // Start every opening with a fresh form whose suggested ID reflects the
+  // current roster, so a client added a moment ago can't collide with it.
+  function onOpenChange(next: boolean) {
+    if (next) setForm(emptyForm(suggestedId));
+    setOpen(next);
+  }
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -167,7 +164,7 @@ export function NewClientDialog({ trigger, onCreated }: Props) {
   }
 
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
+    <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetTrigger
         render={
           trigger ?? (

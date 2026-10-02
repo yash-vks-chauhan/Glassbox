@@ -15,6 +15,9 @@ Revises: 0001_create_audit_tables
 Create Date: 2026-05-23
 """
 
+import json
+from datetime import datetime, timezone
+
 from alembic import op
 import sqlalchemy as sa
 
@@ -51,8 +54,8 @@ def upgrade() -> None:
         sa.Column("role", sa.String(length=24), nullable=False, server_default="advisor"),
         sa.Column("display_name", sa.String(length=255), nullable=True),
         sa.Column("mfa_secret", sa.String(length=255), nullable=True),
-        sa.Column("mfa_enrolled", sa.Boolean(), nullable=False, server_default=sa.text("0")),
-        sa.Column("email_verified", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("mfa_enrolled", sa.Boolean(), nullable=False, server_default=sa.false()),
+        sa.Column("email_verified", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("last_login_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("failed_login_count", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("locked_until", sa.DateTime(timezone=True), nullable=True),
@@ -297,23 +300,54 @@ def _seed_demo_clients() -> None:
             "advisor": "R. Mehta",
         },
     ]
-    insert_sql = sa.text(
-        """
-        INSERT INTO clients (
-            id, tenant_id, client_code, display_name, household, risk_profile,
-            jurisdictions, max_single_position_pct, min_liquid_within_30d_pct,
-            excluded_sectors, excluded_regions, ips_version, ips_updated_at,
-            aum_eur, advisor_name, created_at
-        ) VALUES (
-            :id, :tenant_id, :code, :name, :household, :risk_profile,
-            :jurisdictions, :max_pos, :min_liq,
-            :excl_sectors, :excl_regions, :ips_version, :ips_updated_at,
-            :aum, :advisor, CURRENT_TIMESTAMP
-        )
-        """
+    # Typed lightweight table so SQLAlchemy serialises the JSON lists and
+    # timestamps per dialect (Postgres rejects JSON passed as VARCHAR).
+    clients = sa.table(
+        "clients",
+        sa.column("id", sa.String),
+        sa.column("tenant_id", sa.String),
+        sa.column("client_code", sa.String),
+        sa.column("display_name", sa.String),
+        sa.column("household", sa.String),
+        sa.column("risk_profile", sa.String),
+        sa.column("jurisdictions", sa.JSON),
+        sa.column("max_single_position_pct", sa.Float),
+        sa.column("min_liquid_within_30d_pct", sa.Float),
+        sa.column("excluded_sectors", sa.JSON),
+        sa.column("excluded_regions", sa.JSON),
+        sa.column("ips_version", sa.String),
+        sa.column("ips_updated_at", sa.DateTime(timezone=True)),
+        sa.column("aum_eur", sa.Float),
+        sa.column("advisor_name", sa.String),
+        sa.column("created_at", sa.DateTime(timezone=True)),
     )
-    for r in rows:
-        op.execute(insert_sql.bindparams(tenant_id=DEMO_TENANT_ID, **r))
+    now = datetime.now(timezone.utc)
+    op.bulk_insert(
+        clients,
+        [
+            {
+                "id": r["id"],
+                "tenant_id": DEMO_TENANT_ID,
+                "client_code": r["code"],
+                "display_name": r["name"],
+                "household": r["household"],
+                "risk_profile": r["risk_profile"],
+                "jurisdictions": json.loads(r["jurisdictions"]),
+                "max_single_position_pct": r["max_pos"],
+                "min_liquid_within_30d_pct": r["min_liq"],
+                "excluded_sectors": json.loads(r["excl_sectors"]),
+                "excluded_regions": json.loads(r["excl_regions"]),
+                "ips_version": r["ips_version"],
+                "ips_updated_at": datetime.fromisoformat(r["ips_updated_at"]).replace(
+                    tzinfo=timezone.utc
+                ),
+                "aum_eur": r["aum"],
+                "advisor_name": r["advisor"],
+                "created_at": now,
+            }
+            for r in rows
+        ],
+    )
 
 
 def downgrade() -> None:

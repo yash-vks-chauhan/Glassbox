@@ -12,6 +12,7 @@ RECOMMENDED_FAMILIES = ("llama", "qwen", "deepseek", "gemma", "mistral")
 def openrouter_status() -> dict[str, object]:
     settings = get_settings()
     status: dict[str, object] = {
+        "local_evidence_mode": settings.local_evidence_mode,
         "local_llm": settings.local_llm,
         "configured_model": settings.llm_model,
         "has_openrouter_key": has_usable_openrouter_key(settings.openrouter_api_key),
@@ -19,6 +20,10 @@ def openrouter_status() -> dict[str, object]:
         "configured_model_available": None,
         "recommended_free_models": [],
     }
+    if settings.local_evidence_mode:
+        status["models_endpoint_reachable"] = None
+        status["configured_model_available"] = None
+        return status
     try:
         models = fetch_models()
     except Exception as exc:

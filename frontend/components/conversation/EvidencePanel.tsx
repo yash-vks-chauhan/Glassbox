@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import Link from "next/link";
 import { ChevronRight, FileText } from "lucide-react";
 
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { libraryHref } from "@/lib/library";
 import { cn } from "@/lib/utils";
 import type { CitationRef } from "@/components/conversation/InlineCitation";
 
@@ -58,34 +60,44 @@ export function EvidencePanel({ citations, focusedSourceId, onFocusChange }: Pro
       <ScrollArea className="flex-1">
         <div ref={containerRef} className="space-y-3 p-3">
           {citations.map((citation) => (
-            <button
+            <div
               key={`${citation.sourceId}-${citation.index}`}
-              type="button"
               data-source-id={citation.sourceId}
-              onClick={() => onFocusChange?.(citation.sourceId)}
               className={cn(
-                "block w-full rounded-md border bg-card p-3 text-left transition-colors",
+                "rounded-md border bg-card transition-colors",
                 focusedSourceId === citation.sourceId
                   ? "border-primary/40 bg-accent/60"
                   : "hover:bg-accent/30",
               )}
             >
-              <div className="mb-1.5 flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                <div className="flex items-center gap-1.5">
-                  <span
-                    className="inline-flex h-[14px] min-w-[14px] items-center justify-center rounded-[3px] border bg-card px-[3px] text-[10px] font-medium leading-none text-primary"
-                  >
-                    {citation.index}
-                  </span>
-                  <span className="font-mono">{citation.sourceType}</span>
-                  <span className="font-mono normal-case text-foreground/80">
-                    {citation.sourceId}
-                  </span>
+              <button
+                type="button"
+                onClick={() => onFocusChange?.(citation.sourceId)}
+                className="block w-full p-3 pb-2 text-left"
+              >
+                <div className="mb-1.5 flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className="inline-flex h-[14px] min-w-[14px] items-center justify-center rounded-[3px] border bg-card px-[3px] text-[10px] font-medium leading-none text-primary"
+                    >
+                      {citation.index}
+                    </span>
+                    <span className="font-mono">{citation.sourceType}</span>
+                    <span className="font-mono normal-case text-foreground/80">
+                      {citation.sourceId}
+                    </span>
+                  </div>
+                  <ChevronRight className="h-3 w-3 opacity-50" />
                 </div>
-                <ChevronRight className="h-3 w-3 opacity-50" />
-              </div>
-              <p className="text-[13px] leading-6 text-foreground/85">{citation.snippet}</p>
-            </button>
+                <p className="text-[13px] leading-6 text-foreground/85">{citation.snippet}</p>
+              </button>
+              <Link
+                href={libraryHref(citation.sourceId)}
+                className="block px-3 pb-2.5 text-[11px] text-primary hover:underline"
+              >
+                Open document →
+              </Link>
+            </div>
           ))}
         </div>
       </ScrollArea>

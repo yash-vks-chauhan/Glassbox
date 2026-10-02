@@ -13,6 +13,7 @@ import {
 
 import { OutcomeBadge } from "@/components/OutcomeBadge";
 import { getAudit, type AuditDetail } from "@/lib/api";
+import { hasAtLeastRole, useAuth } from "@/lib/auth-context";
 import { ClientRecord, getClient } from "@/lib/clients";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +23,11 @@ export default function AuditReplayPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  // Keyed by decision so moving between replays starts from a clean state.
+  return <ReplayLoader key={id} id={id} />;
+}
+
+function ReplayLoader({ id }: { id: string }) {
   const [audit, setAudit] = useState<AuditDetail | null>(null);
   const [client, setClient] = useState<ClientRecord | undefined>();
   const [error, setError] = useState<string | null>(null);
@@ -29,11 +35,6 @@ export default function AuditReplayPage({
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
-    setError(null);
-    setAudit(null);
-    setClient(undefined);
-
     getAudit(id)
       .then(async (row) => {
         const loadedClient = row.client_id ? await getClient(row.client_id) : undefined;
@@ -97,12 +98,26 @@ function AuditReplay({
             Decision replay
           </div>
           <h1 className="font-serif text-2xl font-semibold tracking-tight">{audit.question}</h1>
+          {audit.retrieval_question ? (
+            <p className="text-sm text-muted-foreground">
+              Follow-up answered as:{" "}
+              <span className="text-foreground/85">{audit.retrieval_question}</span>
+            </p>
+          ) : null}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <span>{new Date(audit.created_at).toLocaleString()}</span>
             <span>·</span>
             <span className="tabular">{audit.latency_ms}ms latency</span>
             <span>·</span>
             <span className="font-mono">{audit.id}</span>
+            {audit.thread_id ? (
+              <>
+                <span>·</span>
+                <Link href={`/app/threads/${audit.thread_id}`} className="hover:text-foreground">
+                  Open thread
+                </Link>
+              </>
+            ) : null}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -120,14 +135,16 @@ function AuditReplay({
         <div className="space-y-4">
           <section className="rounded-xl border bg-card">
             <header className="border-b px-4 py-2.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-              Final answer
+              {audit.final_answer ? "Final answer" : "Refusal shown to the advisor"}
             </header>
             <div className="p-4 text-[14px] leading-7">
-              {audit.final_answer ?? (
-                <span className="text-muted-foreground">
-                  Refused or escalated before answer generation.
-                </span>
-              )}
+              {audit.final_answer ??
+                audit.refusal_reason ?? (
+                  <span className="text-muted-foreground">
+                    Refused before answer generation. Decisions recorded before refusal texts were
+                    stored don&apos;t carry the message that was shown.
+                  </span>
+                )}
             </div>
           </section>
 
@@ -203,7 +220,9 @@ function AuditReplay({
             </header>
             <dl className="divide-y divide-border/60 text-sm">
               <Stat label="Grounding score" value={audit.grounding_score} />
-              <Stat label="Determinism" value={audit.determinism_score} hint="Nightly job" />
+              <DefRow label="Model route">
+                <code className="font-mono text-[11px]">{audit.llm_model ?? "—"}</code>
+              </DefRow>
               <DefRow label="Claims kept / total">
                 {claimsKept} of {audit.decision_claims.length || 0}
               </DefRow>
@@ -236,22 +255,83 @@ function AuditReplay({
                   {new Date(audit.created_at).toLocaleString()}
                 </span>
               </DefRow>
+              <DefRow label="Asked by">{audit.asked_by ?? "system"}</DefRow>
               <DefRow label="Decision ID">
                 <code className="font-mono text-[11px]">{audit.id}</code>
+              </DefRow>
+              <DefRow label="Row hash">
+                <code className="break-all font-mono text-[10px]" title={`prev ${audit.prev_hash ?? "—"}`}>
+                  {audit.row_hash ? `${audit.row_hash.slice(0, 16)}…` : "not chained"}
+                </code>
               </DefRow>
             </dl>
           </section>
 
+          <OversightPanel audit={audit} />
+
           <section className="rounded-xl border bg-card p-4 text-[12px] leading-6 text-muted-foreground">
             <div className="mb-1 text-[10px] uppercase tracking-[0.14em]">Audit completeness</div>
             <p>
-              Question, retrieval, claim verification, and trust metrics are stored for this
-              decision. Replay is fully reproducible.
+              The question, the evidence retrieved, every claim kept or dropped, and the trust
+              scores are stored exactly as recorded, and the row is linked into the workspace hash
+              chain. Reviews and corrections are appended alongside; the decision never changes.
             </p>
           </section>
         </aside>
       </div>
     </div>
+  );
+}
+
+const ASSESSMENT_LABEL: Record<string, string> = {
+  correct: "AI was correct",
+  needs_signoff: "Correct, needs sign-off",
+  incorrect: "AI was wrong",
+  insufficient_evidence: "Insufficient evidence",
+};
+
+function OversightPanel({ audit }: { audit: AuditDetail }) {
+  const { role } = useAuth();
+  const canReview = hasAtLeastRole(role, "compliance");
+  const escalation = audit.active_escalation;
+  return (
+    <section className="rounded-xl border bg-card">
+      <header className="flex items-center justify-between border-b px-4 py-2.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+        Human oversight
+        {canReview ? (
+          <Link href={`/app/review/${audit.id}`} className="normal-case tracking-normal text-primary">
+            Review →
+          </Link>
+        ) : null}
+      </header>
+      <div className="space-y-3 px-4 py-3 text-sm">
+        <div className="text-muted-foreground">
+          {escalation
+            ? `Escalation ${escalation.status.replace("_", " ")} · ${escalation.priority} priority · SLA ${new Date(escalation.sla_due_at).toLocaleString()}`
+            : "No open escalation."}
+        </div>
+        {audit.reviews.length === 0 && audit.corrections.length === 0 ? (
+          <div className="text-xs text-muted-foreground">Not reviewed yet.</div>
+        ) : null}
+        {audit.reviews.map((review) => (
+          <div key={review.id} className="rounded-md border bg-background/60 px-3 py-2">
+            <div className="font-medium">{ASSESSMENT_LABEL[review.assessment] ?? review.assessment}</div>
+            <div className="text-xs text-muted-foreground">
+              {review.reviewer_email ?? "reviewer"} · {new Date(review.created_at).toLocaleString()}
+            </div>
+            {review.notes ? <p className="mt-1 text-[13px] leading-6">{review.notes}</p> : null}
+          </div>
+        ))}
+        {audit.corrections.map((correction) => (
+          <div key={correction.id} className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
+            <div className="font-medium">
+              Correction{correction.corrected_outcome ? ` · should be ${correction.corrected_outcome}` : ""}
+            </div>
+            <p className="mt-1 text-[13px] leading-6">{correction.note}</p>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

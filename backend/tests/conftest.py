@@ -10,23 +10,107 @@ So we install a *test-only* dependency override that returns a default
 "demo admin" user. The override is on by default; Phase C's own isolation
 tests pop it off via the `no_auth_override` fixture to exercise the real
 401/403 paths.
+
+The whole suite runs against a throwaway state directory (SQLite DB, vector
+store, dev mail dir) and never reads the developer's `.env`, so a test run
+can't write into `backend/glassbox_local.db`, send real email through a
+configured SMTP server, or call a hosted model with a real API key.
 """
 
 from __future__ import annotations
 
 import os
-import sqlite3
+import shutil
+import tempfile
+from pathlib import Path
 from uuid import uuid4
 
-import pytest
-from sqlalchemy import select
+# ---------------------------------------------------------------------------
+# Hermetic environment. This must run before anything imports `app`: app.db
+# builds its engine from the settings at import time. Some tests also import
+# helpers via `tests.conftest`, which executes this module a second time, so
+# the state dir is shared through an env var instead of re-created.
+# ---------------------------------------------------------------------------
+_TEST_STATE_DIR = Path(
+    os.environ.get("GLASSBOX_TEST_STATE_DIR") or tempfile.mkdtemp(prefix="glassbox-tests-")
+)
+os.environ["GLASSBOX_TEST_STATE_DIR"] = str(_TEST_STATE_DIR)
 
-from app.config import get_settings
-from app.core.auth import service as auth_service
-from app.core.auth.deps import current_user, require_role
-from app.db import SessionLocal, engine
-from app.main import app
-from app.models_db import DEMO_TENANT_ID, User
+# Opt-in Postgres run (CI does this): point GLASSBOX_TEST_DATABASE_URL at an
+# *empty* database whose name contains "test". The name check stops a stray
+# shell variable from aiming the suite at a real database.
+_TEST_DATABASE_URL = os.environ.get("GLASSBOX_TEST_DATABASE_URL", "").strip()
+if _TEST_DATABASE_URL:
+    _database_name = _TEST_DATABASE_URL.rsplit("/", 1)[-1].split("?", 1)[0]
+    if "test" not in _database_name:
+        raise RuntimeError(
+            "GLASSBOX_TEST_DATABASE_URL must name a throwaway database containing "
+            f"'test' (got {_database_name!r})."
+        )
+else:
+    _TEST_DATABASE_URL = f"sqlite:///{_TEST_STATE_DIR / 'glassbox_test.db'}"
+
+os.environ.update(
+    {
+        "DATABASE_URL": _TEST_DATABASE_URL,
+        "CHROMA_DIR": str(_TEST_STATE_DIR / "chroma_store"),
+        "DEV_MAIL_DIR": str(_TEST_STATE_DIR / "mail"),
+        "GLASSBOX_EMBEDDING_BACKEND": "hash",
+        "GLASSBOX_LOCAL_LLM": "1",
+        "GLASSBOX_LOCAL_EVIDENCE_MODE": "1",
+        "GLASSBOX_PRODUCTION_MODE": "0",
+        # No background harness runs while tests are asserting on the DB.
+        "DETERMINISM_SCHEDULER_ENABLED": "0",
+    }
+)
+for _credential in (
+    "OPENROUTER_API_KEY",
+    "SMTP_HOST",
+    "SMTP_USERNAME",
+    "SMTP_PASSWORD",
+    "BOOTSTRAP_SETUP_KEY",
+):
+    os.environ.pop(_credential, None)
+
+from app import config as _app_config  # noqa: E402
+
+# Ignore the developer's .env / .env.local so local runs match CI.
+_app_config.Settings.model_config["env_file"] = None
+_app_config.get_settings.cache_clear()
+
+import pytest  # noqa: E402
+from sqlalchemy import select  # noqa: E402
+
+from app.core.auth import service as auth_service  # noqa: E402
+from app.core.auth.deps import current_user  # noqa: E402
+from app.db import SessionLocal, engine, init_db  # noqa: E402
+from app.main import app  # noqa: E402
+from app.models_db import DEMO_TENANT_ID, User  # noqa: E402
+from corpus.ingest import ingest  # noqa: E402
+
+
+def _migrate_to_head() -> None:
+    """Build the schema with the real migration chain, the same path a
+    Postgres deployment takes, so a broken migration fails the suite."""
+    from alembic import command
+    from alembic.config import Config
+
+    backend_dir = Path(__file__).resolve().parents[1]
+    config = Config(str(backend_dir / "alembic.ini"))
+    config.set_main_option("script_location", str(backend_dir / "alembic"))
+    command.upgrade(config, "head")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def hermetic_state():
+    """Migrate the throwaway database and build the vector index once, then
+    delete the whole state directory when the session ends."""
+    _migrate_to_head()
+    init_db()
+    ingest()
+    yield _TEST_STATE_DIR
+    engine.dispose()
+    shutil.rmtree(_TEST_STATE_DIR, ignore_errors=True)
 
 
 # Reuse one demo-admin row across the whole session so tests don't pile up
@@ -63,7 +147,7 @@ def _ensure_default_user() -> str:
 
 
 @pytest.fixture(scope="session")
-def default_user_id() -> str:
+def default_user_id(hermetic_state) -> str:
     return _ensure_default_user()
 
 
@@ -200,7 +284,7 @@ def make_user(
 
 def make_tenant(slug: str | None = None) -> str:
     """Create a second tenant for cross-tenant isolation tests."""
-    from app.models_db import Tenant, utcnow
+    from app.models_db import Tenant
 
     slug = slug or f"t-{uuid4().hex[:6]}"
     with SessionLocal() as db:
@@ -219,98 +303,3 @@ def login_for_token(client, *, email: str, password: str, tenant_slug: str) -> s
     return res.json()["access_token"]
 
 
-_PHASE_E_AUDIT_TRIGGERS = (
-    "trg_no_delete_decisions",
-    "trg_no_delete_decision_claims",
-    "trg_no_delete_retrieved_chunks",
-)
-
-
-def _suspend_audit_delete_guards(raw: sqlite3.Connection) -> None:
-    """Drop the Phase E audit DELETE triggers for the duration of a test
-    cleanup. Tests fabricate decisions and need to remove them; production
-    code paths never hit this. We reinstate the triggers immediately after
-    via :func:`_restore_audit_delete_guards`."""
-    for trigger in _PHASE_E_AUDIT_TRIGGERS:
-        raw.execute(f"DROP TRIGGER IF EXISTS {trigger}")
-
-
-def _restore_audit_delete_guards(raw: sqlite3.Connection) -> None:
-    spec = {
-        "trg_no_delete_decisions": "decisions",
-        "trg_no_delete_decision_claims": "decision_claims",
-        "trg_no_delete_retrieved_chunks": "retrieved_chunks",
-    }
-    for trigger, table in spec.items():
-        raw.execute(
-            f"CREATE TRIGGER IF NOT EXISTS {trigger} BEFORE DELETE ON {table} "
-            f"BEGIN SELECT RAISE(ABORT, 'audit row deletion blocked — "
-            f"use decision_corrections instead'); END"
-        )
-
-
-def wipe_test_artifacts() -> None:
-    """Delete users / tokens / tenants created by tests (email LIKE 'test+%'
-    or tenant slug starting with 't-')."""
-    raw = sqlite3.connect(engine.url.database)
-    try:
-        _suspend_audit_delete_guards(raw)
-        user_ids = [
-            r[0]
-            for r in raw.execute("SELECT id FROM users WHERE email LIKE 'test+%'")
-        ]
-        if user_ids:
-            placeholders = ",".join("?" * len(user_ids))
-            raw.execute(
-                f"DELETE FROM refresh_tokens WHERE user_id IN ({placeholders})",
-                user_ids,
-            )
-            raw.execute(
-                f"DELETE FROM password_resets WHERE user_id IN ({placeholders})",
-                user_ids,
-            )
-            raw.execute(
-                f"DELETE FROM security_events WHERE user_id IN ({placeholders})",
-                user_ids,
-            )
-            raw.execute(
-                f"DELETE FROM escalation_events WHERE escalation_id IN "
-                f"(SELECT id FROM escalations WHERE created_by_user_id IN ({placeholders}))",
-                user_ids,
-            )
-            raw.execute(
-                f"DELETE FROM escalations WHERE created_by_user_id IN ({placeholders})",
-                user_ids,
-            )
-            raw.execute(
-                f"DELETE FROM decisions WHERE user_id IN ({placeholders})",
-                user_ids,
-            )
-        # tenants we manufactured for cross-tenant tests
-        tenant_rows = [
-            r[0]
-            for r in raw.execute(
-                "SELECT id FROM tenants WHERE slug LIKE 't-%' AND slug != 'demo'"
-            )
-        ]
-        for tid in tenant_rows:
-            raw.execute("DELETE FROM decision_claims WHERE tenant_id = ?", (tid,))
-            raw.execute("DELETE FROM escalation_events WHERE tenant_id = ?", (tid,))
-            raw.execute("DELETE FROM escalations WHERE tenant_id = ?", (tid,))
-            raw.execute("DELETE FROM retrieved_chunks WHERE tenant_id = ?", (tid,))
-            raw.execute("DELETE FROM decisions WHERE tenant_id = ?", (tid,))
-            raw.execute("DELETE FROM users WHERE tenant_id = ?", (tid,))
-            raw.execute("DELETE FROM clients WHERE tenant_id = ?", (tid,))
-            raw.execute("DELETE FROM tenants WHERE id = ?", (tid,))
-        if user_ids:
-            placeholders = ",".join("?" * len(user_ids))
-            # Preserve the persistent default conftest user.
-            raw.execute(
-                f"DELETE FROM users WHERE id IN ({placeholders}) "
-                "AND email != ?",
-                [*user_ids, _TEST_USER_EMAIL],
-            )
-        _restore_audit_delete_guards(raw)
-        raw.commit()
-    finally:
-        raw.close()

@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { ArrowLeft, SearchX } from "lucide-react";
 
 import { ButtonLink } from "@/components/ButtonLink";
@@ -22,7 +21,7 @@ export function ClientMissingState({ id }: { id: string }) {
           No client with ID <span className="font-mono">{id}</span>
         </h1>
         <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted-foreground">
-          The roster doesn't include this client. It may have been removed, never added,
+          The roster doesn&apos;t include this client. It may have been removed, never added,
           or the URL was mistyped.
         </p>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-2">

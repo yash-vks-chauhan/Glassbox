@@ -15,7 +15,6 @@ path runs end-to-end.
 
 from __future__ import annotations
 
-import sqlite3
 from uuid import uuid4
 
 import pytest
@@ -24,7 +23,7 @@ from sqlalchemy import select
 
 from app.core.auth import service as auth_service
 from app.core.auth.tokens import issue_access_token
-from app.db import SessionLocal, engine
+from app.db import SessionLocal
 from app.main import app
 from app.models_db import DEMO_TENANT_ID, ClientRecord, Decision, Tenant, User
 
@@ -99,65 +98,6 @@ def _make_client(*, tenant_id: str, code: str = "C901") -> None:
         db.commit()
 
 
-@pytest.fixture(autouse=True)
-def _cleanup_phasec_rows():
-    yield
-    raw = sqlite3.connect(engine.url.database)
-    try:
-        # Phase E audit DELETE guards block these cleanup deletes by design.
-        # Suspend them just for the test-fixture cleanup window.
-        from tests.conftest import (
-            _restore_audit_delete_guards,
-            _suspend_audit_delete_guards,
-        )
-        _suspend_audit_delete_guards(raw)
-        user_ids = [
-            r[0]
-            for r in raw.execute("SELECT id FROM users WHERE email LIKE 'test+phasec-%'")
-        ]
-        if user_ids:
-            ph = ",".join("?" * len(user_ids))
-            raw.execute(f"DELETE FROM refresh_tokens WHERE user_id IN ({ph})", user_ids)
-            raw.execute(f"DELETE FROM security_events WHERE user_id IN ({ph})", user_ids)
-            raw.execute(
-                f"DELETE FROM escalation_events WHERE escalation_id IN "
-                f"(SELECT id FROM escalations WHERE created_by_user_id IN ({ph}))",
-                user_ids,
-            )
-            raw.execute(f"DELETE FROM escalations WHERE created_by_user_id IN ({ph})", user_ids)
-            raw.execute(
-                f"DELETE FROM decision_claims WHERE decision_id IN "
-                f"(SELECT id FROM decisions WHERE user_id IN ({ph}))",
-                user_ids,
-            )
-            raw.execute(
-                f"DELETE FROM retrieved_chunks WHERE decision_id IN "
-                f"(SELECT id FROM decisions WHERE user_id IN ({ph}))",
-                user_ids,
-            )
-            raw.execute(f"DELETE FROM decisions WHERE user_id IN ({ph})", user_ids)
-            raw.execute(f"DELETE FROM users WHERE id IN ({ph})", user_ids)
-        # And the tenants we made.
-        tenant_ids = [
-            r[0]
-            for r in raw.execute(
-                "SELECT id FROM tenants WHERE slug LIKE 't-%' AND slug != 'demo'"
-            )
-        ]
-        for tid in tenant_ids:
-            raw.execute("DELETE FROM decision_claims WHERE tenant_id = ?", (tid,))
-            raw.execute("DELETE FROM escalation_events WHERE tenant_id = ?", (tid,))
-            raw.execute("DELETE FROM escalations WHERE tenant_id = ?", (tid,))
-            raw.execute("DELETE FROM retrieved_chunks WHERE tenant_id = ?", (tid,))
-            raw.execute("DELETE FROM decisions WHERE tenant_id = ?", (tid,))
-            raw.execute("DELETE FROM users WHERE tenant_id = ?", (tid,))
-            raw.execute("DELETE FROM clients WHERE tenant_id = ?", (tid,))
-            raw.execute("DELETE FROM tenants WHERE id = ?", (tid,))
-        raw.commit()
-    finally:
-        raw.close()
-
-
 # ---------------------------------------------------------------------------
 # Unauth → 401 on every protected endpoint
 # ---------------------------------------------------------------------------
@@ -170,13 +110,26 @@ PROTECTED_ENDPOINTS = [
     ("GET", "/escalations", None),
     ("POST", "/escalations", {"decision_id": "some-id", "reason": "review"}),
     ("GET", "/metrics/summary", None),
+    ("GET", "/metrics/timeseries", None),
+    ("GET", "/decisions/some-id/reviews", None),
+    ("POST", "/decisions/some-id/reviews", {"assessment": "correct", "reason_code": "other"}),
     ("POST", "/determinism", {"question": "anything"}),
+    ("GET", "/determinism/schedule", None),
+    ("PUT", "/determinism/schedule", {"enabled": True, "hour_utc": 2, "runs_per_question": 5, "sample_size": 10}),
+    ("GET", "/determinism/runs", None),
+    ("POST", "/determinism/runs", {}),
     ("GET", "/models/health", None),
     ("GET", "/models/leaderboard", None),
     ("GET", "/models/eval-runs", None),
     ("GET", "/models/eval-dataset", None),
     ("GET", "/models/approved", None),
     ("GET", "/llm/status", None),
+    ("GET", "/admin/system", None),
+    ("GET", "/library", None),
+    ("GET", "/threads", None),
+    ("GET", "/threads/00000000-0000-0000-0000-00000000abcd", None),
+    ("PATCH", "/threads/00000000-0000-0000-0000-00000000abcd", {"status": "resolved"}),
+    ("GET", "/library/C001", None),
     ("GET", "/auth/me", None),
     ("POST", "/auth/invite", {"email": "a@b.com", "role": "advisor"}),
     ("POST", "/auth/mfa/enroll", None),

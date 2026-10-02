@@ -14,7 +14,6 @@ import {
   Sigma,
   Sliders,
   Trash2,
-  Users,
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -35,6 +34,11 @@ import {
   listByoKeys,
   saveByoKey,
   deleteByoKey,
+  getSystemInfo,
+  getDeterminismSchedule,
+  listDeterminismRuns,
+  saveDeterminismSchedule,
+  startDeterminismRun,
   type AuditVerifyReport,
   type ByoKey,
   type LlmStatus,
@@ -42,6 +46,9 @@ import {
   type ModelHealth,
   type ModelLeaderboard,
   type ProductionModelStatus,
+  type SystemInfo,
+  type DeterminismRun,
+  type DeterminismSchedule,
 } from "@/lib/api";
 import { UsersCard } from "@/components/admin/UsersCard";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -63,7 +70,6 @@ export default function AdminPage() {
   const [byoKeys, setByoKeys] = useState<ByoKey[] | null>(null);
   const [byoKey, setByoKey] = useState("");
   const [savingByoKey, setSavingByoKey] = useState(false);
-  const [temp, setTemp] = useState("0.1");
 
   useEffect(() => {
     if (!allowed) return;
@@ -84,6 +90,7 @@ export default function AdminPage() {
     leaderboard?.models.find((row) => row.route === selectedRoute) ??
     leaderboard?.models[0] ??
     null;
+  const productionChecklist = buildProductionChecklist(productionStatus, health, status);
 
   async function refreshModels() {
     setEvaluating(true);
@@ -110,10 +117,11 @@ export default function AdminPage() {
     }
   }
 
-  async function runFastEval() {
+  async function runEval(gate: "fast" | "full") {
     setEvaluating(true);
     try {
-      const leaderboardRows = await runModelEval(40, 2, "fast");
+      const limit = gate === "full" ? productionStatus?.required_eval_questions ?? 183 : 40;
+      const leaderboardRows = await runModelEval(limit, 2, gate, selectedRoute ? [selectedRoute] : undefined);
       const [historyRows, productionRows] = await Promise.all([
         getModelEvalRuns(12).catch(() => []),
         getProductionModelStatus().catch((error) => {
@@ -128,7 +136,7 @@ export default function AdminPage() {
       if (leaderboardRows.models.length) {
         setSelectedRoute(leaderboardRows.models[0].route);
       }
-      toast.success("Fast model gate completed");
+      toast.success(gate === "full" ? "Full model gate completed" : "Fast model gate completed");
     } catch (error) {
       toast.error("Eval failed", {
         description: error instanceof Error ? error.message : "Model evaluation could not run.",
@@ -136,10 +144,6 @@ export default function AdminPage() {
     } finally {
       setEvaluating(false);
     }
-  }
-
-  function saveSettingsToast() {
-    toast.success("Settings saved");
   }
 
   async function refreshByoKeys() {
@@ -209,8 +213,10 @@ export default function AdminPage() {
         description="Models, inference keys, determinism runs, and access — the controls advisors should never see."
       />
 
-      <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-        <div className="space-y-4">
+      {/* minmax(0, …): wide content (the users table, hashes) must not push a
+          column past its share of the page. */}
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-4">
           <Section icon={Cpu} title="Inference">
             {statusError ? (
               <StatusError message={statusError} />
@@ -220,16 +226,43 @@ export default function AdminPage() {
               <div className="space-y-3">
                 <Row
                   label="Mode"
-                  value={status.local_llm ? "Local deterministic demo mode" : "Model router"}
+                  value={
+                    status.local_evidence_mode
+                      ? "Private local evidence mode"
+                      : status.local_llm
+                        ? "Local deterministic demo mode"
+                        : "Model router"
+                  }
                 />
-                <Row label="Model" value={<code className="font-mono text-[12px]">{status.configured_model}</code>} />
+                <Row
+                  label="Model"
+                  value={
+                    status.local_evidence_mode ? (
+                      "No paid model required"
+                    ) : (
+                      <code className="font-mono text-[12px]">{status.configured_model}</code>
+                    )
+                  }
+                />
                 <Row
                   label="OpenRouter key"
-                  value={status.has_openrouter_key ? "configured" : "not configured"}
+                  value={
+                    status.local_evidence_mode
+                      ? "not required"
+                      : status.has_openrouter_key
+                        ? "configured"
+                        : "not configured"
+                  }
                 />
                 <Row
                   label="Models endpoint"
-                  value={status.models_endpoint_reachable ? "reachable" : "offline"}
+                  value={
+                    status.models_endpoint_reachable === null
+                      ? "not used"
+                      : status.models_endpoint_reachable
+                        ? "reachable"
+                        : "offline"
+                  }
                 />
               </div>
             )}
@@ -250,17 +283,27 @@ export default function AdminPage() {
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="font-medium">
-                      {productionStatus.product_inference_allowed
+                      {productionStatus.local_evidence_mode
+                        ? "Local evidence mode is ready"
+                        : productionStatus.product_inference_allowed
                         ? "Production inference is allowed"
                         : "Production inference is blocked"}
                     </div>
                     <StatusPill ok={productionStatus.product_inference_allowed} />
                   </div>
                   <div className="mt-1 text-xs">
-                    {productionStatus.active_route ??
-                      productionStatus.blocked_reason ??
-                      "No active production route."}
+                    {productionStatus.local_evidence_mode
+                      ? "Private, source-backed decisions run without paid model calls."
+                      : productionStatus.active_route ??
+                        productionStatus.blocked_reason ??
+                        "No active production route."}
                   </div>
+                </div>
+
+                <div className="grid gap-2 md:grid-cols-2">
+                  {productionChecklist.map((item) => (
+                    <ChecklistItem key={item.label} {...item} />
+                  ))}
                 </div>
 
                 <div className="grid gap-2 md:grid-cols-2">
@@ -269,16 +312,30 @@ export default function AdminPage() {
                     value={productionStatus.production_mode ? "on" : "off"}
                   />
                   <MetricCard
-                    label="Full gate"
-                    value={`${productionStatus.required_eval_questions} cases`}
+                    label={productionStatus.local_evidence_mode ? "Hosted gate" : "Full gate"}
+                    value={
+                      productionStatus.local_evidence_mode
+                        ? "not required"
+                        : `${productionStatus.required_eval_questions} cases`
+                    }
                   />
                   <MetricCard
                     label="Eval freshness"
-                    value={`${productionStatus.eval_freshness_hours}h`}
+                    value={
+                      productionStatus.local_evidence_mode
+                        ? "not required"
+                        : `${productionStatus.eval_freshness_hours}h`
+                    }
                   />
                   <MetricCard
                     label="Recent eval required"
-                    value={productionStatus.require_recent_eval ? "yes" : "no"}
+                    value={
+                      productionStatus.local_evidence_mode
+                        ? "no"
+                        : productionStatus.require_recent_eval
+                          ? "yes"
+                          : "no"
+                    }
                   />
                 </div>
 
@@ -301,10 +358,16 @@ export default function AdminPage() {
                         <span
                           className={cn(
                             "rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em]",
-                            route.approved_for_inference ? "state-grounded" : "state-flagged",
+                            route.ready_for_inference ? "state-grounded" : "state-flagged",
                           )}
                         >
-                          {route.approved_for_inference ? "Approved" : "Blocked"}
+                          {route.ready_for_inference
+                            ? productionStatus.local_evidence_mode
+                              ? "Local evidence"
+                              : "Ready"
+                            : route.approved_for_inference
+                              ? "Approved · smoke failing"
+                              : "Blocked"}
                         </span>
                         <span className="font-medium">{route.label}</span>
                         <code className="rounded bg-muted px-1.5 py-0.5 text-[11px]">
@@ -312,7 +375,10 @@ export default function AdminPage() {
                         </code>
                       </div>
                       <div className="mt-1 text-xs text-muted-foreground">
-                        {route.blocked_reason || route.approval.reason || "Waiting for eval gate."}
+                        {route.smoke_error ||
+                          route.blocked_reason ||
+                          route.approval.reason ||
+                          "Waiting for eval gate."}
                       </div>
                     </div>
                   ))}
@@ -340,12 +406,19 @@ export default function AdminPage() {
                         </code>
                       </div>
                       <div className="mt-1 text-xs text-muted-foreground">
-                        {row.error || row.blocked_reason || "Configured and reachable."}
+                        {row.smoke_error || row.error || row.blocked_reason || "Listed and chat-usable."}
                       </div>
                     </div>
                     <div className="text-right text-xs text-muted-foreground">
-                      <div>{row.latency_ms ?? "—"}ms</div>
-                      <div>{row.production_eligible ? "Product eligible" : "Demo/fallback only"}</div>
+                      <div>{row.latency_ms ?? "—"}ms list</div>
+                      <div>{row.smoke_latency_ms ?? "—"}ms smoke</div>
+                      <div>
+                        {row.model === "glassbox-evidence-engine"
+                          ? "Private evidence engine"
+                          : row.production_eligible
+                            ? "Product eligible"
+                            : "Demo/fallback only"}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -368,10 +441,20 @@ export default function AdminPage() {
                     size="sm"
                     className="h-7 gap-1.5 rounded-md text-xs"
                     disabled={evaluating}
-                    onClick={runFastEval}
+                    onClick={() => runEval("fast")}
                   >
                     <RefreshCw className="h-3.5 w-3.5" />
-                    {evaluating ? "Scoring" : "Run eval"}
+                    {evaluating ? "Scoring" : "Fast gate"}
+                  </Button>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="h-7 gap-1.5 rounded-md text-xs"
+                    disabled={evaluating || !selectedRoute}
+                    onClick={() => runEval("full")}
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    Full gate
                   </Button>
                   <span>
                     Pass requires outcome ≥ {pct(leaderboard.thresholds.min_outcome_accuracy)},
@@ -380,8 +463,11 @@ export default function AdminPage() {
                     {leaderboard.thresholds.max_p95_latency_ms}ms
                   </span>
                 </div>
-                <div className="overflow-hidden rounded-lg border">
-                  <div className="grid grid-cols-[minmax(0,1.2fr)_54px_56px_56px_56px_56px_56px_56px_62px_68px_56px_88px] gap-px bg-border text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                {/* Twelve columns don't fit the column at most widths; scroll
+                    sideways instead of clipping the labels. */}
+                <div className="overflow-x-auto rounded-lg border">
+                  <div className="min-w-[960px]">
+                  <div className="grid grid-cols-[minmax(160px,1.2fr)_64px_76px_64px_76px_64px_70px_64px_76px_70px_64px_96px] gap-px bg-border text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
                     <Cell>Model</Cell>
                     <Cell align="right">Score</Cell>
                     <Cell align="right">Outcome</Cell>
@@ -399,7 +485,7 @@ export default function AdminPage() {
                     <button
                       key={row.route}
                       className={cn(
-                        "grid w-full grid-cols-[minmax(0,1.2fr)_54px_56px_56px_56px_56px_56px_56px_62px_68px_56px_88px] gap-px bg-border text-left text-xs",
+                        "grid w-full grid-cols-[minmax(160px,1.2fr)_64px_76px_64px_76px_64px_70px_64px_76px_70px_64px_96px] gap-px bg-border text-left text-xs",
                         selectedModel?.route === row.route && "outline outline-2 outline-primary/30",
                       )}
                       onClick={() => setSelectedRoute(row.route)}
@@ -437,6 +523,7 @@ export default function AdminPage() {
                       </Cell>
                     </button>
                   ))}
+                  </div>
                 </div>
               </div>
             )}
@@ -511,15 +598,22 @@ export default function AdminPage() {
                   </div>
                 )}
               </div>
-            ) : (
+            ) : leaderboard === null ? (
               <Skeleton className="h-36 w-full rounded-md" />
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                No evaluation results yet. Run the fast or full gate above to score a model route by
+                category and see its failures here.
+              </p>
             )}
           </Section>
 
           <Section icon={KeyRound} title="Bring your own key">
             <div className="space-y-3">
               <p className="text-xs text-muted-foreground">
-                Enrol an OpenRouter key once. The backend encrypts it and only shows metadata here.
+                {status?.local_evidence_mode
+                  ? "Optional. Private local evidence mode does not need a paid model key."
+                  : "Enrol an OpenRouter key once. The backend encrypts it and only shows metadata here."}
               </p>
               {byoKeys === null ? (
                 <Skeleton className="h-12 w-full rounded-md" />
@@ -579,38 +673,10 @@ export default function AdminPage() {
             </div>
           </Section>
 
-          <Section icon={Sigma} title="Determinism harness">
-            <div className="space-y-3">
-              <p className="text-xs text-muted-foreground">
-                Runs the same set of canary questions N times against the active model and posts
-                the drift to Insights. Not exposed to advisors.
-              </p>
-              <div className="grid grid-cols-2 gap-3">
-                <FormRow label="Schedule">
-                  <Input defaultValue="Daily · 02:00 UTC" />
-                </FormRow>
-                <FormRow label="Runs per query">
-                  <Input defaultValue="5" />
-                </FormRow>
-                <FormRow label="Alternate model">
-                  <Input placeholder="claude-3.5-sonnet" />
-                </FormRow>
-                <FormRow label="Temperature">
-                  <Input value={temp} onChange={(e) => setTemp(e.target.value)} />
-                </FormRow>
-              </div>
-              <div className="flex items-center gap-3">
-                <Switch defaultChecked />
-                <span className="text-sm text-muted-foreground">Auto-publish to Insights</span>
-              </div>
-              <Button className="h-9 rounded-md text-xs" onClick={saveSettingsToast}>
-                Save schedule
-              </Button>
-            </div>
-          </Section>
+          <DeterminismCard />
         </div>
 
-        <aside className="space-y-4">
+        <aside className="min-w-0 space-y-4">
           <UsersCard />
           <AuditVerifyCard />
 
@@ -641,23 +707,7 @@ export default function AdminPage() {
             )}
           </Section>
 
-          <Section icon={Sliders} title="Guardrails">
-            <ul className="space-y-3 text-sm">
-              <Guardrail label="Refuse on missing source" defaultOn />
-              <Guardrail label="Chain-of-Verification pass" defaultOn />
-              <Guardrail label="Log every claim drop" defaultOn />
-              <Guardrail label="Suggest escalation on flags" defaultOn />
-              <Guardrail label="Allow advisor BYO key" />
-            </ul>
-          </Section>
-
-          <Section icon={Settings2} title="System">
-            <dl className="space-y-3 text-sm">
-              <Row label="Region" value="EU-west · Frankfurt" />
-              <Row label="Audit retention" value="7 years" />
-              <Row label="Rate limit" value="60 req / advisor / min" />
-            </dl>
-          </Section>
+          <SystemCards />
         </aside>
       </div>
     </PageContainer>
@@ -688,13 +738,38 @@ function Section({
 
 function AuditVerifyCard() {
   const [report, setReport] = useState<AuditVerifyReport | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  // Check once quietly on load; the button re-checks and reports the result.
+  useEffect(() => {
+    let active = true;
+    verifyAuditChain().then(
+      (result) => {
+        if (!active) return;
+        setReport(result);
+        setLoading(false);
+      },
+      () => active && setLoading(false),
+    );
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function runVerify() {
     setLoading(true);
     try {
-      setReport(await verifyAuditChain());
-      toast.success("Audit chain verified");
+      const result = await verifyAuditChain();
+      setReport(result);
+      if (result.ok) {
+        toast.success("Audit chain verified", {
+          description: `${result.verified} of ${result.total} decisions match their stored hashes.`,
+        });
+      } else {
+        toast.error("Audit chain is broken", {
+          description: result.first_break_reason ?? undefined,
+        });
+      }
     } catch (error) {
       toast.error("Audit verification failed", {
         description: error instanceof Error ? error.message : undefined,
@@ -703,10 +778,6 @@ function AuditVerifyCard() {
       setLoading(false);
     }
   }
-
-  useEffect(() => {
-    void runVerify();
-  }, []);
 
   return (
     <Section icon={ListChecks} title="Audit verify">
@@ -737,7 +808,7 @@ function AuditVerifyCard() {
           <Row
             label="Tail hash"
             value={
-              <code className="max-w-[150px] truncate font-mono text-[11px]">
+              <code className="block truncate font-mono text-[11px]" title={report.tail_hash ?? undefined}>
                 {report.tail_hash ?? "—"}
               </code>
             }
@@ -772,8 +843,8 @@ function AuditVerifyCard() {
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-3 text-sm">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="text-right">{value}</span>
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className="min-w-0 text-right">{value}</span>
     </div>
   );
 }
@@ -812,6 +883,99 @@ function StatusPill({ ok }: { ok: boolean }) {
   );
 }
 
+function buildProductionChecklist(
+  productionStatus: ProductionModelStatus | null,
+  health: ModelHealth[] | null,
+  status: LlmStatus | null,
+) {
+  const readyRoute = productionStatus?.ready_routes[0] ?? null;
+  const activeRoute = productionStatus?.active_route ?? readyRoute ?? productionStatus?.approved_routes[0] ?? null;
+  const activeHealth = activeRoute ? health?.find((row) => row.route === activeRoute) : null;
+  if (productionStatus?.local_evidence_mode) {
+    return [
+      {
+        label: "Endpoint usable",
+        ok: true,
+        detail: `${productionStatus.active_route ?? "local:glassbox-evidence-engine"} is ready locally.`,
+      },
+      {
+        label: "Local evidence engine ready",
+        ok: true,
+        detail: "Uses retrieved sources, policy checks, claim verification, and audit replay.",
+      },
+      {
+        label: "Full eval fresh",
+        ok: true,
+        detail: "Hosted model gate is not required for private local evidence mode.",
+      },
+      {
+        label: "Hosted model gate skipped",
+        ok: true,
+        detail: "No paid provider route or APPROVED_MODELS promotion is required.",
+      },
+      {
+        label: "Production mode on",
+        ok: Boolean(productionStatus.production_mode),
+        detail: productionStatus.production_mode
+          ? "Product mode is on for non-LLM guardrails."
+          : "Local evidence mode is active; product mode can still be enabled for deployment.",
+      },
+    ];
+  }
+  const chatUsable = Boolean(
+    readyRoute || activeHealth?.chat_usable || productionStatus?.routes.some((route) => route.ready_for_inference),
+  );
+  const hasConfiguredRoute = health?.some((row) => row.production_eligible && row.configured) ?? false;
+  const approvedRoute = productionStatus?.approved_routes[0] ?? null;
+  return [
+    {
+      label: "Endpoint usable",
+      ok: chatUsable,
+      detail: chatUsable
+        ? `${readyRoute ?? activeRoute} completed a chat smoke test.`
+        : activeRoute
+          ? `${activeRoute} has not passed chat smoke.`
+          : "No product route has passed chat smoke.",
+    },
+    {
+      label: "Key or local route configured",
+      ok: Boolean(status?.has_openrouter_key || hasConfiguredRoute),
+      detail: status?.has_openrouter_key ? "OpenRouter key metadata is present." : "Using non-hosted candidate route configuration.",
+    },
+    {
+      label: "Full eval fresh",
+      ok: Boolean(approvedRoute),
+      detail: approvedRoute
+        ? `${approvedRoute} has a fresh passing full eval.`
+        : productionStatus
+          ? `${productionStatus.required_eval_questions} cases required.`
+          : "Production status unavailable.",
+    },
+    {
+      label: "Approved route promoted",
+      ok: Boolean(approvedRoute),
+      detail: approvedRoute ?? "No approved route active.",
+    },
+    {
+      label: "Production mode on",
+      ok: Boolean(productionStatus?.production_mode),
+      detail: productionStatus?.production_mode ? "Product gate is enforcing approvals." : "Demo/router mode is active.",
+    },
+  ];
+}
+
+function ChecklistItem({ label, ok, detail }: { label: string; ok: boolean; detail: string }) {
+  return (
+    <div className={cn("rounded-md border px-3 py-2 text-sm", ok ? "state-grounded" : "state-flagged")}>
+      <div className="flex items-center gap-2 font-medium">
+        {ok ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}
+        {label}
+      </div>
+      <div className="mt-1 text-xs">{detail}</div>
+    </div>
+  );
+}
+
 function Cell({
   children,
   align = "left",
@@ -847,11 +1011,291 @@ function FormRow({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-function Guardrail({ label, defaultOn = false }: { label: string; defaultOn?: boolean }) {
+/** The nightly determinism harness: schedule (saved per workspace), a
+ * "Run now" button, and the latest runs with per-question scores. */
+function DeterminismCard() {
+  const [schedule, setSchedule] = useState<DeterminismSchedule | null>(null);
+  const [form, setForm] = useState<DeterminismSchedule | null>(null);
+  const [runs, setRuns] = useState<DeterminismRun[] | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  useEffect(() => {
+    getDeterminismSchedule()
+      .then((row) => {
+        setSchedule(row);
+        setForm(row);
+      })
+      .catch(() => setSchedule(null));
+    listDeterminismRuns(8)
+      .then(setRuns)
+      .catch(() => setRuns([]));
+  }, []);
+
+  const dirty =
+    !!form &&
+    !!schedule &&
+    (form.enabled !== schedule.enabled ||
+      form.hour_utc !== schedule.hour_utc ||
+      form.runs_per_question !== schedule.runs_per_question ||
+      form.sample_size !== schedule.sample_size);
+
+  async function save() {
+    if (!form) return;
+    setSaving(true);
+    try {
+      const saved = await saveDeterminismSchedule({
+        enabled: form.enabled,
+        hour_utc: form.hour_utc,
+        runs_per_question: form.runs_per_question,
+        sample_size: form.sample_size,
+      });
+      setSchedule(saved);
+      setForm(saved);
+      toast.success("Determinism schedule saved");
+    } catch (error) {
+      toast.error("Could not save the schedule", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function runNow() {
+    setRunning(true);
+    try {
+      const run = await startDeterminismRun();
+      setRuns((current) => [run, ...(current ?? [])].slice(0, 8));
+      setExpanded(run.id);
+      toast.success("Determinism run finished", {
+        description:
+          run.avg_score === null
+            ? "No questions to sample yet."
+            : `${run.question_count} questions · average ${Math.round(run.avg_score * 100)}%`,
+      });
+    } catch (error) {
+      toast.error("Run failed", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  const localHour = (hourUtc: number) =>
+    new Date(Date.UTC(2000, 0, 1, hourUtc)).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
   return (
-    <li className="flex items-center justify-between gap-3 rounded-md border bg-background/60 px-3 py-2">
-      <span>{label}</span>
-      <Switch defaultChecked={defaultOn} />
-    </li>
+    <Section icon={Sigma} title="Determinism harness">
+      {form === null ? (
+        <Skeleton className="h-40 w-full rounded-md" />
+      ) : (
+        <div className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Each run asks a sample of this workspace&apos;s recent questions several times and scores
+            how much the answers drift. Runs never add decisions to the audit log; results feed the
+            Determinism metric on Insights.
+          </p>
+          <div className="flex items-center gap-3">
+            <Switch
+              checked={form.enabled}
+              onCheckedChange={(enabled) => setForm({ ...form, enabled })}
+              aria-label="Run nightly"
+            />
+            <span className="text-sm">Run nightly</span>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <FormRow label="Hour (UTC)">
+              <select
+                value={form.hour_utc}
+                onChange={(e) => setForm({ ...form, hour_utc: Number(e.target.value) })}
+                className="h-9 w-full rounded-md border bg-card px-2 text-sm"
+                aria-label="Hour (UTC)"
+              >
+                {Array.from({ length: 24 }, (_, h) => (
+                  <option key={h} value={h}>
+                    {String(h).padStart(2, "0")}:00
+                  </option>
+                ))}
+              </select>
+            </FormRow>
+            <FormRow label="Runs / question">
+              <Input
+                type="number"
+                min={2}
+                max={10}
+                value={form.runs_per_question}
+                onChange={(e) =>
+                  setForm({ ...form, runs_per_question: Math.max(2, Math.min(10, Number(e.target.value) || 2)) })
+                }
+              />
+            </FormRow>
+            <FormRow label="Questions">
+              <Input
+                type="number"
+                min={1}
+                max={25}
+                value={form.sample_size}
+                onChange={(e) =>
+                  setForm({ ...form, sample_size: Math.max(1, Math.min(25, Number(e.target.value) || 1)) })
+                }
+              />
+            </FormRow>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {form.enabled
+              ? `Runs daily at ${String(form.hour_utc).padStart(2, "0")}:00 UTC (${localHour(form.hour_utc)} your time).`
+              : "Nightly runs are off; you can still run it manually."}
+            {schedule?.next_run_at && form.enabled && !dirty
+              ? ` Next run ${new Date(schedule.next_run_at) <= new Date() ? "is due now" : new Date(schedule.next_run_at).toLocaleString()}.`
+              : ""}
+          </p>
+          <div className="flex gap-2">
+            <Button onClick={save} disabled={!dirty || saving} className="h-9 rounded-md text-xs">
+              {saving ? "Saving…" : "Save schedule"}
+            </Button>
+            <Button variant="outline" onClick={runNow} disabled={running} className="h-9 rounded-md text-xs">
+              {running ? "Running…" : "Run now"}
+            </Button>
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Recent runs</div>
+            {runs === null ? (
+              <Skeleton className="h-16 w-full rounded-md" />
+            ) : runs.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No runs yet.</p>
+            ) : (
+              <ul className="divide-y divide-border/60 rounded-md border text-sm">
+                {runs.map((run) => (
+                  <li key={run.id}>
+                    <button
+                      type="button"
+                      onClick={() => setExpanded(expanded === run.id ? null : run.id)}
+                      className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-accent/30"
+                    >
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(run.created_at).toLocaleString()}
+                      </span>
+                      <span className="text-xs text-muted-foreground">{run.triggered_by}</span>
+                      <span className="ml-auto text-xs text-muted-foreground">
+                        {run.question_count} question{run.question_count === 1 ? "" : "s"}
+                      </span>
+                      <span className="w-12 text-right font-medium tabular">
+                        {run.status === "failed"
+                          ? "failed"
+                          : run.avg_score === null
+                            ? "—"
+                            : `${Math.round(run.avg_score * 100)}%`}
+                      </span>
+                    </button>
+                    {expanded === run.id ? (
+                      <div className="space-y-1 border-t bg-background/60 px-3 py-2 text-xs">
+                        {run.error ? <p className="text-destructive">{run.error}</p> : null}
+                        {run.results.map((item, i) => (
+                          <div key={i} className="flex items-baseline justify-between gap-3">
+                            <span className="min-w-0 truncate" title={item.question}>
+                              {item.client_id ? `${item.client_id} · ` : ""}
+                              {item.question}
+                            </span>
+                            <span className="shrink-0 tabular text-muted-foreground">
+                              {Math.round(item.score * 100)}% · {item.distinct_answers} distinct
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+    </Section>
+  );
+}
+
+/**
+ * Guardrails and system facts as the backend reports them. Nothing here is
+ * editable in the browser: each guardrail names the environment variable
+ * that controls it, or is always on.
+ */
+function SystemCards() {
+  const [info, setInfo] = useState<SystemInfo | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getSystemInfo()
+      .then(setInfo)
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load system info"));
+  }, []);
+
+  if (error) {
+    return (
+      <Section icon={Settings2} title="System">
+        <p className="text-sm text-destructive">{error}</p>
+      </Section>
+    );
+  }
+  if (!info) {
+    return (
+      <Section icon={Settings2} title="System">
+        <Skeleton className="h-40 w-full rounded-md" />
+      </Section>
+    );
+  }
+  return (
+    <>
+      <Section icon={Sliders} title="Guardrails">
+        <ul className="space-y-2 text-sm">
+          {info.guardrails.map((g) => (
+            <li
+              key={g.key}
+              className="flex items-start justify-between gap-3 rounded-md border bg-background/60 px-3 py-2"
+            >
+              <span className="min-w-0">
+                <span className="block">{g.label}</span>
+                <span className="block text-xs text-muted-foreground">
+                  {[g.detail, g.setting ? `set via ${g.setting}` : "always on"]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+              </span>
+              <span
+                className={cn(
+                  "mt-0.5 shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em]",
+                  g.enabled
+                    ? "bg-[hsl(var(--state-grounded)/0.12)] text-[hsl(var(--state-grounded))]"
+                    : "bg-muted text-muted-foreground",
+                )}
+              >
+                {g.enabled ? "On" : "Off"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </Section>
+
+      <Section icon={Settings2} title="System">
+        <dl className="space-y-3 text-sm">
+          <Row label="Version" value={info.version} />
+          <Row label="Environment" value={info.environment} />
+          <Row label="Database" value={info.database} />
+          <Row label="Inference" value={info.inference_route ?? info.inference_mode} />
+          <Row label="Embeddings" value={info.embedding_backend} />
+          <Row
+            label="Rate limits / min"
+            value={`ask ${info.rate_limits.ask_per_min} · auth ${info.rate_limits.auth_per_min} · other ${info.rate_limits.default_per_min}`}
+          />
+          <Row label="Audit retention" value={info.audit_retention} />
+        </dl>
+      </Section>
+    </>
   );
 }

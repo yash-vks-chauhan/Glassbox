@@ -1,5 +1,5 @@
 import re
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, model_validator
 
@@ -101,6 +101,26 @@ class AcceptInviteRequest(StrictModel):
     display_name: str | None = None
 
 
+class AcceptInviteResponse(BaseModel):
+    """Response after accepting an invitation.
+
+    For non-MFA roles (advisor, compliance) only `status` and `user_id` are
+    set — the user just signs in normally next.
+
+    For MFA roles (admin, owner) the response also carries a staged TOTP
+    secret + a short-lived `mfa_setup_token`. The invitee must immediately
+    POST that token + a current authenticator code to `/auth/bootstrap/complete`
+    to flip MFA on and receive a session. Without that second step they
+    have a password but cannot log in (role gates them on enrolment)."""
+
+    status: str = "created"
+    user_id: str
+    requires_mfa_setup: bool = False
+    mfa_setup_token: str | None = None
+    mfa_secret: str | None = None
+    provisioning_uri: str | None = None
+
+
 class MFAEnrollResponse(BaseModel):
     secret: str
     provisioning_uri: str
@@ -118,9 +138,47 @@ class MeResponse(BaseModel):
     user_id: str
     tenant_id: str
     tenant_slug: str
+    tenant_name: str
     email: str
+    display_name: str | None = None
     role: str
     mfa_enrolled: bool
+    can_use_byo_keys: bool = False
+
+
+# ---------------------------------------------------------------------------
+# First-admin bootstrap (resolves the chicken-and-egg: admin needs MFA to log
+# in, but MFA enrollment needs a session). Two-step: begin returns a TOTP
+# secret + short-lived token, complete verifies the code and mints a session.
+# ---------------------------------------------------------------------------
+
+
+class BootstrapBeginRequest(StrictModel):
+    setup_key: str = Field(min_length=10, max_length=256)
+    tenant_slug: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9][a-z0-9-]{0,63}$")
+    tenant_name: str | None = Field(default=None, max_length=255)
+    email: EmailStr
+    password: str = Field(min_length=12)
+    display_name: str | None = Field(default=None, max_length=255)
+
+
+class BootstrapBeginResponse(BaseModel):
+    bootstrap_token: str
+    mfa_secret: str
+    provisioning_uri: str
+    user_id: str
+
+
+class BootstrapCompleteRequest(StrictModel):
+    bootstrap_token: str = Field(min_length=10)
+    mfa_code: str = Field(min_length=4, max_length=12)
+
+
+class BootstrapCompleteResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    recovery_codes: list[str]
 
 
 class AskRequest(StrictModel):
@@ -133,6 +191,8 @@ class AskRequest(StrictModel):
 
     question: str = Field(min_length=3, max_length=4_000)
     client_id: SafeSourceId = None
+    # Continue an existing thread; omitted, the question starts a new one.
+    thread_id: str | None = Field(default=None, pattern=r"^[0-9a-fA-F-]{36}$")
 
 
 class Citation(BaseModel):
@@ -160,6 +220,9 @@ class AskResponse(BaseModel):
     citations: list[Citation] = []
     refusal_reason: str | None = None
     trust: Trust = Trust()
+    thread_id: str | None = None
+    # Set when a follow-up was answered as a context-resolved question.
+    retrieval_question: str | None = None
 
 
 class RetrievedChunkOut(BaseModel):
@@ -174,6 +237,7 @@ class RetrievedChunkOut(BaseModel):
 
 
 class ClaimOut(BaseModel):
+    id: str | None = None
     claim_text: str
     cited_source_id: str | None = None
     verified: bool = False
@@ -189,12 +253,92 @@ class AuditSummary(BaseModel):
     grounding_score: float | None
     determinism_score: float | None
     latency_ms: int
+    llm_model: str | None = None
+
+
+ReviewAssessment = Literal["correct", "needs_signoff", "incorrect", "insufficient_evidence"]
+ReviewReasonCode = Literal[
+    "concentration_breach",
+    "liquidity_floor",
+    "sector_exclusion",
+    "region_exclusion",
+    "tax_out_of_scope",
+    "suitability_mismatch",
+    "other",
+]
+
+
+class ClaimVerdict(StrictModel):
+    claim_id: str = Field(min_length=1, max_length=64)
+    supported: bool
+
+
+class ReviewCreateRequest(StrictModel):
+    assessment: ReviewAssessment
+    reason_code: ReviewReasonCode
+    notes: str | None = Field(default=None, max_length=4_000)
+    # Only meaningful when the reviewer says the AI was wrong.
+    corrected_outcome: Literal["answered", "flagged", "refused"] | None = None
+    claim_verdicts: list[ClaimVerdict] = Field(default_factory=list, max_length=200)
+
+    @model_validator(mode="after")
+    def _correction_needs_incorrect_assessment(self) -> "ReviewCreateRequest":
+        if self.corrected_outcome and self.assessment != "incorrect":
+            raise ValueError("corrected_outcome is only allowed when assessment is 'incorrect'")
+        return self
+
+
+class ClaimLabelOut(BaseModel):
+    claim_id: str
+    claim_text: str
+    cited_source_id: str | None = None
+    supported: bool
+
+
+class ReviewOut(BaseModel):
+    id: str
+    decision_id: str
+    escalation_id: str | None = None
+    escalation_status: str | None = None
+    reviewer_user_id: str
+    reviewer_email: str | None = None
+    assessment: str
+    reason_code: str
+    notes: str | None = None
+    corrected_outcome: str | None = None
+    created_at: str
+    claim_labels: list[ClaimLabelOut] = []
+
+
+class CorrectionOut(BaseModel):
+    id: str
+    corrected_by_user_id: str
+    corrected_outcome: str | None = None
+    note: str
+    created_at: str
+
+
+class EscalationBrief(BaseModel):
+    id: str
+    status: str
+    priority: str
+    sla_due_at: str
+    assigned_to_user_id: str | None = None
 
 
 class AuditDetail(AuditSummary):
+    asked_by: str | None = None
+    prev_hash: str | None = None
+    row_hash: str | None = None
+    thread_id: str | None = None
+    retrieval_question: str | None = None
+    refusal_reason: str | None = None
     final_answer: str | None
     retrieved_chunks: list[RetrievedChunkOut]
     decision_claims: list[ClaimOut]
+    reviews: list[ReviewOut] = []
+    corrections: list[CorrectionOut] = []
+    active_escalation: EscalationBrief | None = None
 
 
 class AuditVerifyResponse(BaseModel):
@@ -258,6 +402,34 @@ class MetricsSummary(BaseModel):
     flagged_rate: float
     avg_determinism: float | None
     audit_completeness: float
+    reviews: int = 0
+    labelled_claims: int = 0
+    # answered / flagged / refused / fallback -> number of decisions
+    outcome_counts: dict[str, int] = {}
+
+
+class MetricsPoint(BaseModel):
+    """One UTC day. Rates are None on days without decisions, so charts
+    show a gap instead of a misleading zero."""
+
+    date: str
+    total: int
+    answered: int = 0
+    flagged: int = 0
+    refused: int = 0
+    fallback: int = 0
+    hallucination_rate: float | None = None
+    refusal_rate: float | None = None
+    flagged_rate: float | None = None
+    audit_completeness: float | None = None
+    avg_determinism: float | None = None
+
+
+class MetricsTimeseries(BaseModel):
+    days: int
+    start: str
+    end: str
+    points: list[MetricsPoint]
 
 
 # ---------------------------------------------------------------------------
@@ -312,6 +484,10 @@ class ClientOut(BaseModel):
     aum_eur: float | None = None
     advisor_name: str | None = None
     created_at: str
+    # Activity the caller can see (advisors: their own decisions).
+    decision_count: int = 0
+    flagged_count: int = 0
+    last_decision_at: str | None = None
 
 
 class ClientCreateRequest(StrictModel):
@@ -339,8 +515,11 @@ class DeterminismRequest(StrictModel):
 
 class DeterminismResponse(BaseModel):
     determinism_score: float
-    representative_decision_id: str | None
+    # Kept for API compatibility; repeat runs are no longer recorded as
+    # decisions, so this is always None. See run_id for the stored result.
+    representative_decision_id: str | None = None
     per_run_outcomes: list[AskResponse]
+    run_id: str | None = None
 
 
 class ModelHealth(BaseModel):
@@ -355,6 +534,18 @@ class ModelHealth(BaseModel):
     blocked_reason: str | None = None
     latency_ms: int | None = None
     error: str | None = None
+    chat_usable: bool = False
+    smoke_latency_ms: int | None = None
+    smoke_error: str | None = None
+
+
+class AskRuntimeStatus(BaseModel):
+    mode: str
+    production_mode: bool
+    active_route: str | None = None
+    fallback_enabled: bool
+    status: str
+    message: str | None = None
 
 
 class ProductionModelRouteStatus(BaseModel):
@@ -366,6 +557,10 @@ class ProductionModelRouteStatus(BaseModel):
     production_eligible: bool
     blocked_reason: str | None = None
     approved_for_inference: bool
+    ready_for_inference: bool = False
+    chat_usable: bool = False
+    smoke_latency_ms: int | None = None
+    smoke_error: str | None = None
     approval: dict
     prompt_profile: dict
 
@@ -376,11 +571,15 @@ class ProductionModelStatus(BaseModel):
     active_route: str | None = None
     candidate_routes: list[str]
     approved_routes: list[str]
+    ready_routes: list[str] = []
+    active_route_health: dict | None = None
     required_eval_questions: int
     eval_freshness_hours: int
     require_recent_eval: bool
     approved_models_env: str
     blocked_reason: str | None = None
+    local_evidence_mode: bool = False
+    model_gate_required: bool = True
     routes: list[ProductionModelRouteStatus]
 
 
@@ -426,3 +625,151 @@ class ModelLeaderboard(BaseModel):
     evaluated_questions: int
     thresholds: dict
     models: list[ModelLeaderboardRow]
+
+
+class GuardrailStatus(BaseModel):
+    key: str
+    label: str
+    enabled: bool
+    detail: str | None = None
+    # Environment variable that controls it; None means always on.
+    setting: str | None = None
+
+
+class RateLimitInfo(BaseModel):
+    auth_per_min: int
+    ask_per_min: int
+    default_per_min: int
+
+
+class SystemInfo(BaseModel):
+    version: str
+    environment: str
+    database: str
+    inference_mode: str
+    inference_route: str | None = None
+    embedding_backend: str
+    rate_limits: RateLimitInfo
+    max_ask_body_bytes: int
+    audit_retention: str
+    guardrails: list[GuardrailStatus]
+
+
+class AccessRequestCreate(StrictModel):
+    """Public contact form. `website` is a honeypot: people never see the
+    field, so a non-empty value marks an automated submission."""
+
+    name: str = Field(min_length=1, max_length=120)
+    company: str = Field(min_length=1, max_length=160)
+    work_email: EmailStr
+    role: str = Field(min_length=1, max_length=120)
+    message: str | None = Field(default=None, max_length=4_000)
+    website: str | None = Field(default=None, max_length=200)
+
+
+class AccessRequestReceived(BaseModel):
+    status: str = "received"
+
+
+class LibraryDocumentOut(BaseModel):
+    source_id: str
+    source_type: str
+    title: str
+    shared: bool
+    file: str
+    version: str | None = None
+    updated_on: str | None = None
+    size_bytes: int
+    indexed_passages: int
+
+
+class LibraryDocumentDetail(LibraryDocumentOut):
+    metadata: dict[str, object]
+    body: str
+    cited_in_decisions: int
+
+
+class ThreadOut(BaseModel):
+    id: str
+    client_id: str
+    title: str
+    status: str
+    created_by_user_id: str
+    created_at: str
+    updated_at: str
+    message_count: int
+    last_question: str | None = None
+    last_outcome: str | None = None
+
+
+class ThreadMessage(BaseModel):
+    """One question and its answer, shaped like the /ask response so a
+    reloaded thread renders exactly like a live one."""
+
+    decision_id: str
+    created_at: str
+    question: str
+    retrieval_question: str | None = None
+    outcome: str
+    answer: str | None = None
+    refusal_reason: str | None = None
+    citations: list[Citation] = []
+    trust: Trust = Trust()
+    escalation: EscalationBrief | None = None
+
+
+class ThreadDetail(ThreadOut):
+    messages: list[ThreadMessage]
+
+
+class ThreadUpdateRequest(StrictModel):
+    status: Literal["open", "resolved"] | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+
+
+class DeterminismScheduleOut(BaseModel):
+    enabled: bool
+    hour_utc: int
+    runs_per_question: int
+    sample_size: int
+    updated_at: str | None = None
+    next_run_at: str | None = None
+
+
+class DeterminismScheduleUpdate(StrictModel):
+    enabled: bool
+    hour_utc: int = Field(ge=0, le=23)
+    runs_per_question: int = Field(ge=2, le=10)
+    sample_size: int = Field(ge=1, le=25)
+
+
+class DeterminismQuestionResult(BaseModel):
+    question: str
+    client_id: str | None = None
+    source: str
+    score: float
+    outcomes: list[str]
+    distinct_answers: int
+
+
+class DeterminismRunOut(BaseModel):
+    id: str
+    created_at: str
+    completed_at: str | None = None
+    triggered_by: str
+    scheduled_for: str | None = None
+    status: str
+    model_route: str | None = None
+    runs_per_question: int
+    question_count: int
+    avg_score: float | None = None
+    min_score: float | None = None
+    error: str | None = None
+    results: list[DeterminismQuestionResult] = []
+
+
+class DeterminismRunRequest(StrictModel):
+    """Overrides for a manual run; omitted fields use the schedule's."""
+
+    runs_per_question: int | None = Field(default=None, ge=2, le=10)
+    sample_size: int | None = Field(default=None, ge=1, le=25)

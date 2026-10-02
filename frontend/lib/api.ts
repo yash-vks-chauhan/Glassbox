@@ -46,6 +46,18 @@ export type AskResponse = {
   citations: Citation[];
   refusal_reason: string | null;
   trust: Trust;
+  thread_id: string | null;
+  /** Set when a follow-up was answered as a context-resolved question. */
+  retrieval_question: string | null;
+};
+
+export type AskRuntimeStatus = {
+  mode: "production" | "blocked" | "local_evidence" | "demo" | "byo" | "router" | string;
+  production_mode: boolean;
+  active_route: string | null;
+  fallback_enabled: boolean;
+  status: "ready" | "blocked" | "degraded" | string;
+  message: string | null;
 };
 
 export type MetricsSummary = {
@@ -55,6 +67,31 @@ export type MetricsSummary = {
   flagged_rate: number;
   avg_determinism: number | null;
   audit_completeness: number;
+  reviews: number;
+  labelled_claims: number;
+  outcome_counts: Record<"answered" | "flagged" | "refused" | "fallback", number>;
+};
+
+/** One UTC day; rates are null on days without decisions. */
+export type MetricsPoint = {
+  date: string;
+  total: number;
+  answered: number;
+  flagged: number;
+  refused: number;
+  fallback: number;
+  hallucination_rate: number | null;
+  refusal_rate: number | null;
+  flagged_rate: number | null;
+  audit_completeness: number | null;
+  avg_determinism: number | null;
+};
+
+export type MetricsTimeseries = {
+  days: number;
+  start: string;
+  end: string;
+  points: MetricsPoint[];
 };
 
 export type AuditDetail = {
@@ -67,6 +104,15 @@ export type AuditDetail = {
   grounding_score: number | null;
   determinism_score: number | null;
   latency_ms: number;
+  llm_model: string | null;
+  /** Email of the user who asked; null for system-run decisions. */
+  asked_by: string | null;
+  prev_hash: string | null;
+  row_hash: string | null;
+  thread_id: string | null;
+  /** The context-resolved question a follow-up was answered with. */
+  retrieval_question: string | null;
+  refusal_reason: string | null;
   retrieved_chunks: Array<{
     source_id: string;
     source_type: string;
@@ -78,14 +124,87 @@ export type AuditDetail = {
     selected_reason?: string | null;
   }>;
   decision_claims: Array<{
+    id: string | null;
     claim_text: string;
     cited_source_id: string | null;
     verified: boolean;
     kept: boolean;
   }>;
+  reviews: Review[];
+  corrections: Correction[];
+  active_escalation: EscalationBrief | null;
 };
 
-export type AuditSummary = Omit<AuditDetail, "final_answer" | "retrieved_chunks" | "decision_claims">;
+export type AuditSummary = Omit<
+  AuditDetail,
+  | "final_answer"
+  | "retrieved_chunks"
+  | "decision_claims"
+  | "reviews"
+  | "corrections"
+  | "active_escalation"
+  | "asked_by"
+  | "prev_hash"
+  | "row_hash"
+  | "thread_id"
+  | "retrieval_question"
+  | "refusal_reason"
+>;
+
+export type ReviewAssessment = "correct" | "needs_signoff" | "incorrect" | "insufficient_evidence";
+
+export type ReviewReasonCode =
+  | "concentration_breach"
+  | "liquidity_floor"
+  | "sector_exclusion"
+  | "region_exclusion"
+  | "tax_out_of_scope"
+  | "suitability_mismatch"
+  | "other";
+
+export type Review = {
+  id: string;
+  decision_id: string;
+  escalation_id: string | null;
+  escalation_status: string | null;
+  reviewer_user_id: string;
+  reviewer_email: string | null;
+  assessment: ReviewAssessment;
+  reason_code: ReviewReasonCode;
+  notes: string | null;
+  corrected_outcome: "answered" | "flagged" | "refused" | null;
+  created_at: string;
+  claim_labels: Array<{
+    claim_id: string;
+    claim_text: string;
+    cited_source_id: string | null;
+    supported: boolean;
+  }>;
+};
+
+export type Correction = {
+  id: string;
+  corrected_by_user_id: string;
+  corrected_outcome: string | null;
+  note: string;
+  created_at: string;
+};
+
+export type EscalationBrief = {
+  id: string;
+  status: string;
+  priority: string;
+  sla_due_at: string;
+  assigned_to_user_id: string | null;
+};
+
+export type ReviewInput = {
+  assessment: ReviewAssessment;
+  reason_code: ReviewReasonCode;
+  notes: string | null;
+  corrected_outcome: Review["corrected_outcome"];
+  claim_verdicts: Array<{ claim_id: string; supported: boolean }>;
+};
 
 export type AuditVerifyReport = {
   tenant_id: string;
@@ -133,9 +252,13 @@ export type MeResponse = {
   user_id: string;
   tenant_id: string;
   tenant_slug: string;
+  tenant_name: string;
   email: string;
+  display_name: string | null;
   role: "owner" | "admin" | "compliance" | "advisor";
   mfa_enrolled: boolean;
+  /** Whether this user may store and use their own model API key. */
+  can_use_byo_keys: boolean;
 };
 
 const DEFAULT_API_BASE = "http://localhost:8000";
@@ -283,6 +406,24 @@ async function readErrorDetail(response: Response): Promise<unknown> {
   }
 }
 
+/**
+ * Human-readable message from a FastAPI error body: `{"detail": "..."}` for
+ * HTTPException, `{"detail": [{"msg": ...}]}` for validation errors.
+ */
+function errorMessage(detail: unknown): string | undefined {
+  if (typeof detail === "string") return detail || undefined;
+  if (!detail || typeof detail !== "object" || !("detail" in detail)) return undefined;
+  const inner = (detail as { detail: unknown }).detail;
+  if (typeof inner === "string") return inner;
+  if (Array.isArray(inner)) {
+    const messages = inner
+      .map((item) => (item && typeof item === "object" && "msg" in item ? String(item.msg) : ""))
+      .filter(Boolean);
+    return messages.length ? messages.join("; ") : undefined;
+  }
+  return undefined;
+}
+
 type RequestOptions = {
   // If true, skip the refresh-retry loop and surface 401s directly. Used
   // by the auth endpoints themselves to avoid recursion (refresh-on-refresh).
@@ -293,6 +434,18 @@ export async function request<T>(
   path: string,
   init?: RequestInit & RequestOptions,
 ): Promise<T> {
+  const response = await send(path, init);
+  // 204 / empty body — return undefined cast to T so callers don't need to
+  // special-case void endpoints.
+  if (response.status === 204) return undefined as unknown as T;
+  return (await response.json()) as T;
+}
+
+/**
+ * Authenticated fetch with the single-refresh retry and error mapping
+ * shared by every API call. Returns the successful Response unread.
+ */
+async function send(path: string, init?: RequestInit & RequestOptions): Promise<Response> {
   const { skipAuthRefresh, ...fetchInit } = init ?? {};
   const url = `${getApiBase()}${path}`;
   const doFetch = (token: string | null) =>
@@ -323,13 +476,25 @@ export async function request<T>(
 
   if (!response.ok) {
     const detail = await readErrorDetail(response);
-    throw new ApiError(response.status, detail);
+    throw new ApiError(response.status, detail, errorMessage(detail));
   }
+  return response;
+}
 
-  // 204 / empty body — return undefined cast to T so callers don't need to
-  // special-case void endpoints.
-  if (response.status === 204) return undefined as unknown as T;
-  return (await response.json()) as T;
+/** Fetch a file through the authenticated API and hand it to the browser. */
+export async function downloadFile(path: string, fallbackName: string): Promise<string> {
+  const response = await send(path);
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? fallbackName;
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  return filename;
 }
 
 // ---------------------------------------------------------------------------
@@ -428,11 +593,64 @@ export function resetPassword(token: string, newPassword: string) {
   });
 }
 
+export type AcceptInviteResponse = {
+  status: "created";
+  user_id: string;
+  requires_mfa_setup: boolean;
+  // The following are only set when requires_mfa_setup is true (admin/owner
+  // roles). Hand mfa_setup_token + a current TOTP code back to
+  // /auth/bootstrap/complete to finish enrolment and receive a session.
+  mfa_setup_token?: string | null;
+  mfa_secret?: string | null;
+  provisioning_uri?: string | null;
+};
+
 export function acceptInvite(token: string, password: string, displayName?: string) {
-  return request<{ status: "created"; user_id: string }>("/auth/accept-invite", {
+  return request<AcceptInviteResponse>("/auth/accept-invite", {
     method: "POST",
     skipAuthRefresh: true,
     body: JSON.stringify({ token, password, display_name: displayName ?? null }),
+  });
+}
+
+export type BootstrapBeginRequest = {
+  setup_key: string;
+  tenant_slug: string;
+  tenant_name: string | null;
+  email: string;
+  password: string;
+  display_name: string | null;
+};
+
+export type BootstrapBeginResponse = {
+  bootstrap_token: string;
+  mfa_secret: string;
+  provisioning_uri: string;
+  user_id: string;
+};
+
+/** First-run setup: create a workspace's first owner (needs the server's
+ * BOOTSTRAP_SETUP_KEY). Finish with completeMfaSetup. */
+export function beginBootstrap(payload: BootstrapBeginRequest) {
+  return request<BootstrapBeginResponse>("/auth/bootstrap/begin", {
+    method: "POST",
+    skipAuthRefresh: true,
+    body: JSON.stringify(payload),
+  });
+}
+
+export type BootstrapCompleteResponse = {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  recovery_codes: string[];
+};
+
+export function completeMfaSetup(setupToken: string, code: string) {
+  return request<BootstrapCompleteResponse>("/auth/bootstrap/complete", {
+    method: "POST",
+    skipAuthRefresh: true,
+    body: JSON.stringify({ bootstrap_token: setupToken, mfa_code: code }),
   });
 }
 
@@ -463,14 +681,20 @@ export function inviteUser(email: string, role: "owner" | "admin" | "compliance"
 export function ask(input: {
   question: string;
   client_id?: string | null;
+  thread_id?: string | null;
 }) {
   return request<AskResponse>("/ask", {
     method: "POST",
     body: JSON.stringify({
       question: input.question,
       client_id: input.client_id ?? null,
+      thread_id: input.thread_id ?? null,
     }),
   });
+}
+
+export function getAskRuntimeStatus() {
+  return request<AskRuntimeStatus>("/ask/runtime-status");
 }
 
 export type AskStreamEventName =
@@ -490,6 +714,8 @@ export async function askStream(
   input: {
     question: string;
     client_id?: string | null;
+    /** Continue this thread; omit to start a new one. */
+    thread_id?: string | null;
   },
   onEvent: (event: AskStreamEvent) => void,
 ): Promise<AskResponse> {
@@ -504,6 +730,7 @@ export async function askStream(
       body: JSON.stringify({
         question: input.question,
         client_id: input.client_id ?? null,
+        thread_id: input.thread_id ?? null,
       }),
     });
 
@@ -523,7 +750,8 @@ export async function askStream(
     throw new RateLimitedError(Number.isFinite(retry) ? retry : 1, await readErrorDetail(response));
   }
   if (!response.ok || !response.body) {
-    throw new ApiError(response.status, await readErrorDetail(response));
+    const detail = await readErrorDetail(response);
+    throw new ApiError(response.status, detail, errorMessage(detail));
   }
   const decoder = new TextDecoder();
   const reader = response.body.getReader();
@@ -568,8 +796,46 @@ export function getMetrics() {
   return request<MetricsSummary>("/metrics/summary");
 }
 
+export function getMetricsTimeseries(days = 14) {
+  return request<MetricsTimeseries>(`/metrics/timeseries?days=${days}`);
+}
+
 export function getAuditSummaries(limit = 20) {
   return request<AuditSummary[]>(`/audit?limit=${limit}`);
+}
+
+export type AuditQuery = {
+  outcome?: "answered" | "flagged" | "refused" | "fallback";
+  client_id?: string;
+  /** ISO timestamp, inclusive */
+  since?: string;
+  /** ISO timestamp, exclusive */
+  until?: string;
+  grounding?: "low";
+  q?: string;
+};
+
+function auditQueryString(query: AuditQuery, extra: Record<string, string | number> = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries({ ...query, ...extra })) {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  }
+  return params.toString();
+}
+
+/** One page of the filtered audit log plus the total number of matches. */
+export async function searchAudit(query: AuditQuery, page: { limit: number; offset: number }) {
+  const response = await send(`/audit?${auditQueryString(query, page)}`);
+  const rows = (await response.json()) as AuditSummary[];
+  const total = Number(response.headers.get("x-total-count") ?? rows.length);
+  return { rows, total };
+}
+
+export function downloadAuditExport(format: "csv" | "pdf", query: AuditQuery) {
+  return downloadFile(
+    `/audit/export?${auditQueryString(query, { format })}`,
+    `glassbox-audit.${format}`,
+  );
 }
 
 export function getAudit(id: string) {
@@ -612,14 +878,135 @@ export function updateEscalation(
 }
 
 export type LlmStatus = {
+  local_evidence_mode: boolean;
   local_llm: boolean;
   configured_model: string;
   has_openrouter_key: boolean;
-  models_endpoint_reachable: boolean;
+  models_endpoint_reachable: boolean | null;
   configured_model_available: boolean | null;
   recommended_free_models: Array<{ id: string; name: string }>;
   error?: string;
 };
+
+export type GuardrailStatus = {
+  key: string;
+  label: string;
+  enabled: boolean;
+  detail: string | null;
+  /** Environment variable that controls it; null means always on. */
+  setting: string | null;
+};
+
+export type SystemInfo = {
+  version: string;
+  environment: "production" | "development";
+  database: string;
+  inference_mode: string;
+  inference_route: string | null;
+  embedding_backend: string;
+  rate_limits: { auth_per_min: number; ask_per_min: number; default_per_min: number };
+  max_ask_body_bytes: number;
+  audit_retention: string;
+  guardrails: GuardrailStatus[];
+};
+
+export function getSystemInfo() {
+  return request<SystemInfo>("/admin/system");
+}
+
+export function submitAccessRequest(input: {
+  name: string;
+  company: string;
+  work_email: string;
+  role: string;
+  message: string | null;
+  /** Honeypot field; real visitors never fill it in. */
+  website: string | null;
+}) {
+  return request<{ status: "received" }>("/public/access-requests", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function submitReview(decisionId: string, input: ReviewInput) {
+  return request<Review>(`/decisions/${encodeURIComponent(decisionId)}/reviews`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export type LibraryDocument = {
+  source_id: string;
+  source_type: "ips" | "portfolio" | "factsheet" | "regulation";
+  title: string;
+  /** True for documents every tenant can cite (regulations, factsheets). */
+  shared: boolean;
+  file: string;
+  version: string | null;
+  updated_on: string | null;
+  size_bytes: number;
+  /** Chunks of this document in the retrieval index. */
+  indexed_passages: number;
+};
+
+export type LibraryDocumentDetail = LibraryDocument & {
+  metadata: Record<string, unknown>;
+  body: string;
+  cited_in_decisions: number;
+};
+
+export function listLibrary() {
+  return request<LibraryDocument[]>("/library");
+}
+
+export function getLibraryDocument(sourceId: string) {
+  return request<LibraryDocumentDetail>(`/library/${encodeURIComponent(sourceId)}`);
+}
+
+export type ThreadStatus = "open" | "resolved" | "escalated";
+
+export type ThreadSummary = {
+  id: string;
+  client_id: string;
+  title: string;
+  status: ThreadStatus;
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+  last_question: string | null;
+  last_outcome: AskResponse["outcome"] | null;
+};
+
+/** One question and answer, shaped like an /ask response. */
+export type ThreadMessage = Omit<AskResponse, "thread_id"> & {
+  created_at: string;
+  question: string;
+  escalation: EscalationBrief | null;
+};
+
+export type ThreadDetail = ThreadSummary & { messages: ThreadMessage[] };
+
+export function listThreads(filters: { client_id?: string; status?: ThreadStatus; limit?: number } = {}) {
+  const params = new URLSearchParams();
+  if (filters.client_id) params.set("client_id", filters.client_id);
+  if (filters.status) params.set("status", filters.status);
+  if (filters.limit) params.set("limit", String(filters.limit));
+  const qs = params.toString();
+  return request<ThreadSummary[]>(qs ? `/threads?${qs}` : "/threads");
+}
+
+export function getThread(threadId: string) {
+  return request<ThreadDetail>(`/threads/${encodeURIComponent(threadId)}`);
+}
+
+export function updateThread(threadId: string, patch: { status?: "open" | "resolved"; title?: string }) {
+  return request<ThreadSummary>(`/threads/${encodeURIComponent(threadId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
 
 export function getLlmStatus() {
   return request<LlmStatus>("/llm/status");
@@ -637,6 +1024,9 @@ export type ModelHealth = {
   blocked_reason: string | null;
   latency_ms: number | null;
   error: string | null;
+  chat_usable: boolean;
+  smoke_latency_ms: number | null;
+  smoke_error: string | null;
 };
 
 export type ProductionModelRouteStatus = {
@@ -648,6 +1038,10 @@ export type ProductionModelRouteStatus = {
   production_eligible: boolean;
   blocked_reason: string | null;
   approved_for_inference: boolean;
+  ready_for_inference: boolean;
+  chat_usable: boolean;
+  smoke_latency_ms: number | null;
+  smoke_error: string | null;
   approval: {
     approved: boolean;
     reason: string;
@@ -663,11 +1057,15 @@ export type ProductionModelStatus = {
   active_route: string | null;
   candidate_routes: string[];
   approved_routes: string[];
+  ready_routes: string[];
+  active_route_health: Record<string, unknown> | null;
   required_eval_questions: number;
   eval_freshness_hours: number;
   require_recent_eval: boolean;
   approved_models_env: string;
   blocked_reason: string | null;
+  local_evidence_mode: boolean;
+  model_gate_required: boolean;
   routes: ProductionModelRouteStatus[];
 };
 
@@ -774,9 +1172,20 @@ export function getModelLeaderboard(limit = 40, determinismRuns = 2) {
   );
 }
 
-export function runModelEval(limit = 40, determinismRuns = 2, gate: "fast" | "full" = "fast") {
+export function runModelEval(
+  limit = 40,
+  determinismRuns = 2,
+  gate: "fast" | "full" = "fast",
+  routes?: string[],
+) {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    determinism_runs: String(determinismRuns),
+    gate,
+  });
+  if (routes?.length) params.set("routes", routes.join(","));
   return request<ModelLeaderboard>(
-    `/models/eval-runs?limit=${limit}&determinism_runs=${determinismRuns}&gate=${gate}`,
+    `/models/eval-runs?${params.toString()}`,
     { method: "POST" },
   );
 }
@@ -820,9 +1229,68 @@ export function runDeterminism(input: {
 }) {
   return request<{
     determinism_score: number;
+    /** Always null: repeat runs are not recorded as decisions. */
     representative_decision_id: string | null;
     per_run_outcomes: AskResponse[];
+    run_id: string | null;
   }>("/determinism", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export type DeterminismSchedule = {
+  enabled: boolean;
+  hour_utc: number;
+  runs_per_question: number;
+  sample_size: number;
+  updated_at: string | null;
+  /** In the past when the run is due and waiting for the scheduler. */
+  next_run_at: string | null;
+};
+
+export type DeterminismRun = {
+  id: string;
+  created_at: string;
+  completed_at: string | null;
+  triggered_by: "schedule" | "manual";
+  scheduled_for: string | null;
+  status: "running" | "completed" | "failed";
+  model_route: string | null;
+  runs_per_question: number;
+  question_count: number;
+  avg_score: number | null;
+  min_score: number | null;
+  error: string | null;
+  results: Array<{
+    question: string;
+    client_id: string | null;
+    source: "recent" | "benchmark" | "manual";
+    score: number;
+    outcomes: string[];
+    distinct_answers: number;
+  }>;
+};
+
+export function getDeterminismSchedule() {
+  return request<DeterminismSchedule>("/determinism/schedule");
+}
+
+export function saveDeterminismSchedule(
+  input: Pick<DeterminismSchedule, "enabled" | "hour_utc" | "runs_per_question" | "sample_size">,
+) {
+  return request<DeterminismSchedule>("/determinism/schedule", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export function listDeterminismRuns(limit = 10) {
+  return request<DeterminismRun[]>(`/determinism/runs?limit=${limit}`);
+}
+
+export function startDeterminismRun(input: { runs_per_question?: number; sample_size?: number } = {}) {
+  return request<DeterminismRun>("/determinism/runs", {
     method: "POST",
     body: JSON.stringify(input),
   });

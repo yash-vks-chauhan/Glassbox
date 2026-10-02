@@ -222,7 +222,7 @@ def _evaluate_route(
             retrieved = retrieve(
                 case.question,
                 client_id=case.client_id,
-                k=6,
+                k=8,
                 tenant_id=DEMO_TENANT_ID,
             )
             started = time.perf_counter()
@@ -543,6 +543,24 @@ def _advisor_quality_score(case: EvalCase, response: AskResponse) -> tuple[float
     if response.answer:
         if not response.citations or not re.search(r"\[[A-Z0-9_-]+\]|\[\d+\]", text):
             reasons.append("citations not visible in answer text")
+        if case.category == "citation_quality":
+            for label in [
+                "source checklist",
+                "client ips",
+                "current portfolio snapshot",
+                "fund factsheet",
+                "suitability guidance",
+            ]:
+                if label not in lowered:
+                    reasons.append(f"missing {label} section")
+        if case.category == "suitability" and "suitability stance:" not in lowered:
+            reasons.append("missing suitability stance")
+        if case.category == "tax_guidance" and "tax evidence" not in lowered:
+            reasons.append("missing tax evidence handling")
+        if case.category == "jurisdiction" and "jurisdiction review" not in lowered:
+            reasons.append("missing jurisdiction review framing")
+        if case.category == "exception_process" and "exception process" not in lowered:
+            reasons.append("missing exception process framing")
         if not _has_clear_next_step(text, response.outcome):
             reasons.append("missing clear advisor action")
         if _has_repeated_source_claim(text):

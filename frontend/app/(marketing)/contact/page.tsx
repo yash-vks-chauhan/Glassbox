@@ -1,27 +1,60 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { ArrowUpRight, BadgeCheck, Mail, MapPin } from "lucide-react";
+import { ArrowUpRight, BadgeCheck, FileSearch, Link2, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { submitAccessRequest } from "@/lib/api";
+
+const PROOF_POINTS = [
+  {
+    icon: FileSearch,
+    title: "Cited answers only",
+    body: "Every answer points to a clause in the approved document set, or GlassBox refuses and routes the question to Compliance.",
+  },
+  {
+    icon: Link2,
+    title: "Tamper-evident audit log",
+    body: "Each decision is hash-chained. An auditor can verify the chain and replay exactly what the system saw.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "No paid model calls by default",
+    body: "The local evidence engine answers without sending client data to a hosted language model.",
+  },
+];
 
 export default function ContactPage() {
   const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+  const [submittedEmail, setSubmittedEmail] = useState<string | null>(null);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const field = (name: string) => String(form.get(name) ?? "").trim();
     setSubmitting(true);
-    await new Promise((r) => setTimeout(r, 600));
-    setSubmitting(false);
-    setSubmitted(true);
-    toast.success("Request received", {
-      description: "We'll reply within one business day.",
-    });
+    try {
+      await submitAccessRequest({
+        name: field("name"),
+        company: field("company"),
+        work_email: field("email"),
+        role: field("role"),
+        message: field("message") || null,
+        website: field("website") || null,
+      });
+      setSubmittedEmail(field("email"));
+      toast.success("Request received");
+    } catch (error) {
+      toast.error("Could not send your request", {
+        description: error instanceof Error ? error.message : "Please try again in a minute.",
+      });
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -35,50 +68,27 @@ export default function ContactPage() {
             Book a 20-minute walkthrough.
           </h1>
           <p className="max-w-lg text-base leading-7 text-muted-foreground md:text-[17px] md:leading-8">
-            Send us one of your IPS documents (synthetic or production). We'll wire it into the
-            workbench and walk through three scenarios live — a mandate breach, a refusal, and an
-            audit replay.
+            Tell us how your team works. The walkthrough covers three scenarios live — a mandate
+            breach, a refusal, and an audit replay.
           </p>
 
           <ul className="space-y-3 pt-2 text-sm">
-            <li className="flex items-start gap-3">
-              <span
-                className="mt-0.5 flex h-7 w-7 items-center justify-center rounded-md"
-                style={{
-                  background: "hsl(var(--state-grounded-soft))",
-                  color: "hsl(var(--state-grounded-soft-foreground))",
-                }}
-              >
-                <BadgeCheck className="h-3.5 w-3.5" />
-              </span>
-              <div>
-                <div className="font-medium">EU + US compliance posture</div>
-                <div className="text-muted-foreground">SOC 2 Type II underway, ISO 27001 mapped.</div>
-              </div>
-            </li>
-            <li className="flex items-start gap-3">
-              <span className="mt-0.5 flex h-7 w-7 items-center justify-center rounded-md bg-secondary text-secondary-foreground">
-                <Mail className="h-3.5 w-3.5" />
-              </span>
-              <div>
-                <div className="font-medium">contact@glassbox.ai</div>
-                <div className="text-muted-foreground">Replies same business day.</div>
-              </div>
-            </li>
-            <li className="flex items-start gap-3">
-              <span className="mt-0.5 flex h-7 w-7 items-center justify-center rounded-md bg-secondary text-secondary-foreground">
-                <MapPin className="h-3.5 w-3.5" />
-              </span>
-              <div>
-                <div className="font-medium">Zurich · London · Singapore</div>
-                <div className="text-muted-foreground">Customer engineering teams in each region.</div>
-              </div>
-            </li>
+            {PROOF_POINTS.map(({ icon: Icon, title, body }) => (
+              <li key={title} className="flex items-start gap-3">
+                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-secondary text-secondary-foreground">
+                  <Icon className="h-3.5 w-3.5" />
+                </span>
+                <div>
+                  <div className="font-medium">{title}</div>
+                  <div className="text-muted-foreground">{body}</div>
+                </div>
+              </li>
+            ))}
           </ul>
         </div>
 
         <div className="rounded-xl border bg-card p-6 shadow-sm">
-          {submitted ? (
+          {submittedEmail ? (
             <div className="flex flex-col items-start gap-3 text-sm">
               <span
                 className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px]"
@@ -90,11 +100,11 @@ export default function ContactPage() {
                 <BadgeCheck className="h-3 w-3" /> Request received
               </span>
               <h2 className="font-serif text-xl font-semibold tracking-tight">
-                We'll be in touch within one business day.
+                Thanks — your request is logged.
               </h2>
               <p className="text-sm text-muted-foreground">
-                In the meantime, open the workbench with a demo dataset — it'll show you exactly
-                what we're going to walk through.
+                The reply will go to <span className="font-medium text-foreground">{submittedEmail}</span>.
+                If you already have workspace credentials, you can open the workbench now.
               </p>
               <a
                 href="/app/home"
@@ -111,31 +121,37 @@ export default function ContactPage() {
               </h2>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field id="name" label="Your name">
-                  <Input id="name" required placeholder="Sarah Kühn" />
+                  <Input id="name" name="name" required maxLength={120} placeholder="Sarah Kühn" />
                 </Field>
                 <Field id="company" label="Firm">
-                  <Input id="company" required placeholder="Acme Wealth" />
+                  <Input id="company" name="company" required maxLength={160} placeholder="Acme Wealth" />
                 </Field>
               </div>
               <Field id="email" label="Work email">
-                <Input id="email" type="email" required placeholder="you@firm.com" />
+                <Input id="email" name="email" type="email" required placeholder="you@firm.com" />
               </Field>
               <Field id="role" label="Your role">
-                <Input id="role" required placeholder="Head of Compliance" />
+                <Input id="role" name="role" required maxLength={120} placeholder="Head of Compliance" />
               </Field>
               <Field id="message" label="What does your week look like?">
                 <Textarea
                   id="message"
+                  name="message"
                   rows={4}
+                  maxLength={4000}
                   placeholder="Three advisors, a 2nd-line reviewer, and a regulator who's asking for evidence."
                 />
               </Field>
+              {/* Honeypot: hidden from people, filled in by form bots. */}
+              <div aria-hidden="true" className="absolute -left-[9999px] h-px w-px overflow-hidden">
+                <label htmlFor="website">Website</label>
+                <input id="website" name="website" type="text" tabIndex={-1} autoComplete="off" />
+              </div>
               <Button type="submit" disabled={submitting} className="h-10 w-full rounded-md">
                 {submitting ? "Sending…" : "Request walkthrough"}
               </Button>
               <p className="text-[11px] text-muted-foreground">
-                By submitting you agree to our standard NDA template; we'll countersign before any
-                materials change hands.
+                These details are used only to reply to this request.
               </p>
             </form>
           )}

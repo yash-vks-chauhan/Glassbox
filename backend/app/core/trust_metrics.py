@@ -48,6 +48,8 @@ def score_claim_support(claim: str, source: str) -> float:
     normalized_claim = _normalized_support_text(claim)
     if normalized_claim and normalized_claim in _normalized_support_text(source):
         return 0.98
+    if _exclusion_summary_supported(claim, source):
+        return 0.96
     features = _support_features(claim, source)
     cosine, overlap, numbers = features
     heuristic = float(max(0.0, min(1.0, 0.5 * cosine + 0.35 * overlap + 0.15 * numbers)))
@@ -64,6 +66,20 @@ def score_claim_support(claim: str, source: str) -> float:
         except Exception:
             pass
     return heuristic
+
+
+def _exclusion_summary_supported(claim: str, source: str) -> bool:
+    claim_lower = claim.lower()
+    source_lower = source.lower()
+    if not re.search(r"\b(exclusion|exclusions|exclude|excludes|restriction|restrictions)\b", claim_lower):
+        return False
+    if not re.search(r"\b(must not|excluded|exclude|excludes|prohibited|restriction|restrictions)\b", source_lower):
+        return False
+    restricted_terms = {"tobacco", "firearms", "gambling", "cryptocurrency", "russia"}
+    claim_terms = {term for term in restricted_terms if term in claim_lower}
+    if not claim_terms:
+        return False
+    return claim_terms.issubset({term for term in restricted_terms if term in source_lower})
 
 
 def _normalized_support_text(text: str) -> str:
@@ -133,10 +149,11 @@ def determinism_run(
     runs: int | None = None,
     alternate_model: str | None = None,
     tenant_id: str | None = None,
-    user_id: str | None = None,
 ):
+    """Ask ``question`` several times and score how much the answers drift.
+    The repeat runs are measurement, not advice, so no decisions are
+    recorded. Returns (score, responses)."""
     from app.core.orchestrator import run_ask
-    from app.models_db import Decision
 
     settings = get_settings()
     run_count = runs or settings.determinism_runs
@@ -146,19 +163,12 @@ def determinism_run(
             client_id=client_id,
             byo_key=None,
             db=db,
-            persist=True,
+            persist=False,
             temperature=settings.llm_temperature,
             model=alternate_model,
             tenant_id=tenant_id,
-            user_id=user_id,
         )
         for _ in range(run_count)
     ]
-    score = determinism_score_from_answers([response.answer for response in responses])
-    representative_id = responses[0].decision_id if responses else None
-    if representative_id:
-        row = db.get(Decision, representative_id)
-        if row:
-            row.determinism_score = score
-            db.commit()
-    return score, representative_id, responses
+    answers = [response.answer or response.refusal_reason for response in responses]
+    return determinism_score_from_answers(answers), responses

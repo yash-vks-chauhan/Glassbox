@@ -35,6 +35,9 @@ class Settings(BaseSettings):
         default=0.25, alias="LLM_RETRY_BACKOFF_SECONDS"
     )
     verify_mode: str = Field(default="auto", alias="VERIFY_MODE")
+    local_evidence_mode: bool = Field(
+        default=True, alias="GLASSBOX_LOCAL_EVIDENCE_MODE"
+    )
     production_mode: bool = Field(default=False, alias="GLASSBOX_PRODUCTION_MODE")
     allow_openrouter_free_in_production: bool = Field(
         default=False, alias="ALLOW_OPENROUTER_FREE_IN_PRODUCTION"
@@ -92,7 +95,7 @@ class Settings(BaseSettings):
     )
     eval_failure_sample_size: int = Field(default=8, alias="EVAL_FAILURE_SAMPLE_SIZE")
     eval_min_questions_for_production: int = Field(
-        default=164, alias="EVAL_MIN_QUESTIONS_FOR_PRODUCTION"
+        default=183, alias="EVAL_MIN_QUESTIONS_FOR_PRODUCTION"
     )
     eval_fast_gate_size: int = Field(default=25, alias="EVAL_FAST_GATE_SIZE")
     eval_min_refusal_correctness: float = Field(
@@ -129,6 +132,15 @@ class Settings(BaseSettings):
     )
     rate_limit_per_min: int = Field(default=10, alias="RATE_LIMIT_PER_MIN")
     determinism_runs: int = Field(default=5, alias="DETERMINISM_RUNS")
+    # In-process scheduler for the nightly determinism harness. Safe with
+    # several workers (runs are claimed per tenant per day); turn it off to
+    # drive runs from cron with `python -m scripts.run_determinism --due`.
+    determinism_scheduler_enabled: bool = Field(
+        default=True, alias="DETERMINISM_SCHEDULER_ENABLED"
+    )
+    determinism_scheduler_interval_seconds: int = Field(
+        default=300, alias="DETERMINISM_SCHEDULER_INTERVAL_SECONDS"
+    )
 
     aws_region: str = Field(default="ap-south-1", alias="AWS_REGION")
     s3_corpus_bucket: str = Field(default="glassbox-corpus", alias="S3_CORPUS_BUCKET")
@@ -160,6 +172,36 @@ class Settings(BaseSettings):
         default=1, alias="PASSWORD_RESET_TTL_HOURS"
     )
     dev_mail_dir: str = Field(default="/tmp/glassbox-mail", alias="DEV_MAIL_DIR")
+    # SMTP. When SMTP_HOST is set, transactional mail (password reset,
+    # invites, future flows) goes out via SMTP instead of being written to
+    # DEV_MAIL_DIR. Leave SMTP_HOST blank to keep the dev .eml-on-disk
+    # behavior — important so tests don't try to reach a real server.
+    smtp_host: str | None = Field(default=None, alias="SMTP_HOST")
+    smtp_port: int = Field(default=587, alias="SMTP_PORT")
+    smtp_username: str | None = Field(default=None, alias="SMTP_USERNAME")
+    smtp_password: str | None = Field(default=None, alias="SMTP_PASSWORD")
+    smtp_from: str = Field(
+        default="no-reply@glassbox.local", alias="SMTP_FROM"
+    )
+    smtp_use_tls: bool = Field(default=True, alias="SMTP_USE_TLS")
+    # First-admin bootstrap key. When set (non-empty), /auth/bootstrap/* lets
+    # the operator create the very first owner of a tenant without already
+    # holding an admin session — solves the chicken-and-egg "admin needs MFA
+    # but can't enroll MFA without being logged in" problem. It closes for a
+    # tenant once an owner or admin there has finished MFA enrolment, so a
+    # leaked key after first use grants nothing for that tenant. The web app
+    # drives it from /setup. Leave unset (the default) to disable it.
+    bootstrap_setup_key: str | None = Field(
+        default=None, alias="BOOTSTRAP_SETUP_KEY"
+    )
+    # Bring-your-own model keys are an admin/owner tool by default. Set to 1
+    # to let advisors and compliance users store and use their own key.
+    allow_advisor_byo_keys: bool = Field(default=False, alias="ALLOW_ADVISOR_BYO_KEYS")
+    # Where contact-page access requests are emailed (via the same mail
+    # backend as invites). Unset: requests are only stored in the database.
+    access_request_notify_email: str | None = Field(
+        default=None, alias="ACCESS_REQUEST_NOTIFY_EMAIL"
+    )
 
     # --- Phase E hardening ---
     app_encryption_key: str = Field(
@@ -167,6 +209,12 @@ class Settings(BaseSettings):
         alias="APP_ENCRYPTION_KEY",
     )
     app_encryption_kid: str = Field(default="dev1", alias="APP_ENCRYPTION_KID")
+    # Retired keys that may still decrypt existing ciphertext after a
+    # rotation, as comma-separated "kid:key" pairs. New data always uses
+    # APP_ENCRYPTION_KEY.
+    app_encryption_previous_keys: str = Field(
+        default="", alias="APP_ENCRYPTION_PREVIOUS_KEYS"
+    )
     cookie_secret: str = Field(
         default="dev-insecure-cookie-secret-change-me", alias="COOKIE_SECRET"
     )

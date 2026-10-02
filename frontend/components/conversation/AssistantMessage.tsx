@@ -3,7 +3,7 @@
 import { ArrowUpRight, CheckCircle2, Copy, Flag, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 
-import type { AskResponse, Escalation } from "@/lib/api";
+import type { AskResponse } from "@/lib/api";
 import { classify, outcomeMeta } from "@/lib/outcomes";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -15,8 +15,10 @@ type AssistantMessageProps = {
   latencyMs?: number;
   groundingScore?: number | null;
   citations: CitationRef[];
-  escalation?: Escalation | null;
+  escalation?: { status: string } | null;
   escalating?: boolean;
+  /** Whether the conversation this answer belongs to is already resolved. */
+  threadResolved?: boolean;
   onFocusSource?: (sourceId: string) => void;
   onEscalate?: () => void;
   onMarkResolved?: () => void;
@@ -36,6 +38,7 @@ export function AssistantMessage({
   citations,
   escalation,
   escalating = false,
+  threadResolved = false,
   onFocusSource,
   onEscalate,
   onMarkResolved,
@@ -103,15 +106,16 @@ export function AssistantMessage({
               </Button>
             )
           )}
-          {kind === "answered" && (
+          {kind === "answered" && onMarkResolved && (
             <Button
               variant="outline"
               size="sm"
               className="h-7 gap-1.5 rounded-md text-xs"
               onClick={onMarkResolved}
+              disabled={threadResolved}
             >
               <Flag className="h-3 w-3" />
-              Mark resolved
+              {threadResolved ? "Thread resolved" : "Mark thread resolved"}
             </Button>
           )}
           <a

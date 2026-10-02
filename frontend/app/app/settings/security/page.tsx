@@ -16,7 +16,7 @@
  *     docs/SECURITY-IMPLEMENTATION.md "deliberately NOT in this pass".
  */
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { KeyRound, Loader2, RefreshCcw, ShieldCheck, Smartphone, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -41,34 +41,36 @@ import {
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 
+function fetchByoKeys(): Promise<ByoKey[]> {
+  return listByoKeys().catch(() => []);
+}
+
+function fetchSessions(): Promise<Session[]> {
+  return listOwnSessions().catch(() => []);
+}
+
 export default function SettingsSecurityPage() {
   const { user, refreshUser, logout } = useAuth();
   const router = useRouter();
   const [byoKeys, setByoKeys] = useState<ByoKey[] | null>(null);
   const [sessions, setSessions] = useState<Session[] | null>(null);
 
-  const reloadByoKeys = useCallback(async () => {
-    try {
-      const rows = await listByoKeys();
-      setByoKeys(rows);
-    } catch {
-      setByoKeys([]);
-    }
-  }, []);
-
-  const reloadSessions = useCallback(async () => {
-    try {
-      const rows = await listOwnSessions();
-      setSessions(rows);
-    } catch {
-      setSessions([]);
-    }
-  }, []);
-
   useEffect(() => {
-    void reloadByoKeys();
-    void reloadSessions();
-  }, [reloadByoKeys, reloadSessions]);
+    let active = true;
+    fetchByoKeys().then((rows) => active && setByoKeys(rows));
+    fetchSessions().then((rows) => active && setSessions(rows));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function reloadByoKeys() {
+    setByoKeys(await fetchByoKeys());
+  }
+
+  async function reloadSessions() {
+    setSessions(await fetchSessions());
+  }
 
   return (
     <PageContainer>
@@ -84,6 +86,7 @@ export default function SettingsSecurityPage() {
         <ByoKeysCard
           keys={byoKeys}
           onReload={reloadByoKeys}
+          canAdd={user?.can_use_byo_keys ?? false}
         />
         <SessionsCard
           sessions={sessions}
@@ -243,7 +246,7 @@ function TwoFactorCard({ onChanged }: { onChanged: () => Promise<unknown> }) {
       >
         <div className="flex items-center gap-2 text-sm text-foreground/80">
           <ShieldCheck className="h-4 w-4 text-[hsl(var(--state-grounded))]" />
-          You're protected with an authenticator app.
+          You&apos;re protected with an authenticator app.
         </div>
       </Card>
     );
@@ -265,7 +268,7 @@ function TwoFactorCard({ onChanged }: { onChanged: () => Promise<unknown> }) {
             ))}
           </ul>
           <Button variant="outline" onClick={() => setRecovery(null)} className="h-9 w-full rounded-md">
-            I've saved them
+            I&apos;ve saved them
           </Button>
         </div>
       ) : phase === "verifying" && secret && otpauth ? (
@@ -310,7 +313,16 @@ function TwoFactorCard({ onChanged }: { onChanged: () => Promise<unknown> }) {
   );
 }
 
-function ByoKeysCard({ keys, onReload }: { keys: ByoKey[] | null; onReload: () => Promise<void> }) {
+function ByoKeysCard({
+  keys,
+  onReload,
+  canAdd,
+}: {
+  keys: ByoKey[] | null;
+  onReload: () => Promise<void>;
+  /** False when workspace policy reserves own model keys for admins. */
+  canAdd: boolean;
+}) {
   const [provider, setProvider] = useState("openrouter");
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
@@ -350,29 +362,36 @@ function ByoKeysCard({ keys, onReload }: { keys: ByoKey[] | null; onReload: () =
       title="BYO API keys"
       description="Your key is encrypted at rest with AES-GCM. The plaintext is never returned again — store it once."
     >
-      <form onSubmit={onSave} className="grid gap-3 sm:grid-cols-[1fr_2fr_auto]">
-        <Input
-          aria-label="Provider"
-          value={provider}
-          onChange={(e) => setProvider(e.target.value)}
-          placeholder="provider"
-          pattern="[a-z0-9._-]+"
-          required
-        />
-        <Input
-          aria-label="API key"
-          type="password"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          placeholder="sk-…"
-          minLength={8}
-          required
-        />
-        <Button type="submit" disabled={saving} className="h-10 rounded-md gap-1.5">
-          <KeyRound className="h-4 w-4" />
-          {saving ? "Saving…" : "Save"}
-        </Button>
-      </form>
+      {canAdd ? (
+        <form onSubmit={onSave} className="grid gap-3 sm:grid-cols-[1fr_2fr_auto]">
+          <Input
+            aria-label="Provider"
+            value={provider}
+            onChange={(e) => setProvider(e.target.value)}
+            placeholder="provider"
+            pattern="[a-z0-9._-]+"
+            required
+          />
+          <Input
+            aria-label="API key"
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder="sk-…"
+            minLength={8}
+            required
+          />
+          <Button type="submit" disabled={saving} className="h-10 rounded-md gap-1.5">
+            <KeyRound className="h-4 w-4" />
+            {saving ? "Saving…" : "Save"}
+          </Button>
+        </form>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          In this workspace only admins can add their own model keys. Keys you
+          stored earlier are listed below and can still be removed.
+        </p>
+      )}
       <div className="mt-4 space-y-2">
         {keys === null ? (
           <Skeleton className="h-12 rounded-md" />

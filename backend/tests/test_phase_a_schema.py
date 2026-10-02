@@ -15,10 +15,14 @@ because we want to validate the migration result, not just the ORM schema.
 
 from __future__ import annotations
 
-import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
+from uuid import uuid4
 
 import pytest
-from sqlalchemy import inspect, select
+from sqlalchemy import inspect, select, text
+from sqlalchemy.engine import Connection
+from sqlalchemy.exc import IntegrityError
 
 from app.db import SessionLocal, engine
 from app.models_db import (
@@ -27,6 +31,28 @@ from app.models_db import (
     Decision,
     Tenant,
 )
+
+
+@contextmanager
+def _rolled_back_connection() -> Iterator[Connection]:
+    """A connection whose work is always rolled back, so constraint tests
+    leave nothing behind on either SQLite or Postgres."""
+    with engine.connect() as conn:
+        transaction = conn.begin()
+        try:
+            yield conn
+        finally:
+            transaction.rollback()
+
+
+def _insert_tenant(conn: Connection, tenant_id: str) -> None:
+    conn.execute(
+        text(
+            "INSERT INTO tenants (id, name, slug, status, plan, created_at) "
+            "VALUES (:id, 'Other', :slug, 'active', 'standard', CURRENT_TIMESTAMP)"
+        ),
+        {"id": tenant_id, "slug": f"t-{tenant_id[:8]}"},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -114,17 +140,16 @@ def test_decisions_tenant_id_is_not_null_and_backfilled() -> None:
     assert total == with_tid, "every decision must carry a tenant_id after Phase A"
 
 
-def test_legacy_audit_rows_belong_to_demo_tenant() -> None:
+def test_every_audit_row_points_at_an_existing_tenant() -> None:
+    # The 0002 backfill of pre-tenancy rows is exercised end-to-end in
+    # test_migrations.py; here we check the invariant holds in this database.
     with engine.connect() as conn:
-        # All pre-existing decisions should now point at the demo tenant.
-        rows = conn.exec_driver_sql(
-            "SELECT DISTINCT tenant_id FROM decisions"
-        ).all()
-    distinct = {r[0] for r in rows}
-    assert DEMO_TENANT_ID in distinct
-    # Other tenants may appear later as tests create them, but right after the
-    # migration the only tenant present should be the demo one.
-    assert distinct == {DEMO_TENANT_ID}
+        for table in ("decisions", "decision_claims", "retrieved_chunks"):
+            orphans = conn.exec_driver_sql(
+                f"SELECT COUNT(*) FROM {table} "
+                "WHERE tenant_id NOT IN (SELECT id FROM tenants)"
+            ).scalar_one()
+            assert orphans == 0, f"{table} has {orphans} rows without a tenant"
 
 
 @pytest.mark.parametrize(
@@ -133,46 +158,35 @@ def test_legacy_audit_rows_belong_to_demo_tenant() -> None:
 )
 def test_inserting_a_row_without_tenant_id_is_rejected(table: str) -> None:
     """The schema must reject any direct INSERT that omits tenant_id."""
-    raw = sqlite3.connect(engine.url.database)
-    try:
-        with pytest.raises(sqlite3.IntegrityError):
-            if table == "decisions":
-                raw.execute(
-                    "INSERT INTO decisions (id, created_at, question, outcome, llm_model, latency_ms) "
-                    "VALUES ('test-x', CURRENT_TIMESTAMP, 'q', 'answered', 'm', 0)"
-                )
-            elif table == "decision_claims":
-                # First make a parent decision row that DOES carry tenant_id
-                # so we hit the claims constraint, not the decision one.
-                raw.execute(
-                    "INSERT INTO decisions (id, tenant_id, created_at, question, outcome, llm_model, latency_ms) "
-                    "VALUES ('test-y', ?, CURRENT_TIMESTAMP, 'q', 'answered', 'm', 0)",
-                    (DEMO_TENANT_ID,),
-                )
-                raw.execute(
-                    "INSERT INTO decision_claims (id, decision_id, claim_text, verified, kept) "
-                    "VALUES ('claim-y', 'test-y', 'c', 0, 0)"
-                )
-            else:  # retrieved_chunks
-                raw.execute(
-                    "INSERT INTO decisions (id, tenant_id, created_at, question, outcome, llm_model, latency_ms) "
-                    "VALUES ('test-z', ?, CURRENT_TIMESTAMP, 'q', 'answered', 'm', 0)",
-                    (DEMO_TENANT_ID,),
-                )
-                raw.execute(
-                    "INSERT INTO retrieved_chunks (id, decision_id, source_id, source_type, chunk_text, score) "
-                    "VALUES ('ch-z', 'test-z', 's', 'ips', 't', 0.0)"
-                )
-            raw.commit()
-    finally:
-        # Roll back anything the parametrized test created so the next case
-        # starts clean.
-        raw.rollback()
-        raw.execute("DELETE FROM retrieved_chunks WHERE id LIKE 'ch-%'")
-        raw.execute("DELETE FROM decision_claims WHERE id LIKE 'claim-%'")
-        raw.execute("DELETE FROM decisions WHERE id LIKE 'test-%'")
-        raw.commit()
-        raw.close()
+    parent_id = str(uuid4())
+    with _rolled_back_connection() as conn:
+        if table != "decisions":
+            # A parent decision that DOES carry tenant_id, so the failure
+            # comes from the child table's constraint.
+            conn.execute(
+                text(
+                    "INSERT INTO decisions (id, tenant_id, created_at, question, outcome, "
+                    "llm_model, latency_ms) VALUES (:id, :tenant, CURRENT_TIMESTAMP, 'q', "
+                    "'answered', 'm', 0)"
+                ),
+                {"id": parent_id, "tenant": DEMO_TENANT_ID},
+            )
+        statements = {
+            "decisions": (
+                "INSERT INTO decisions (id, created_at, question, outcome, llm_model, latency_ms) "
+                "VALUES (:id, CURRENT_TIMESTAMP, 'q', 'answered', 'm', 0)"
+            ),
+            "decision_claims": (
+                "INSERT INTO decision_claims (id, decision_id, claim_text, verified, kept) "
+                "VALUES (:id, :parent, 'c', false, false)"
+            ),
+            "retrieved_chunks": (
+                "INSERT INTO retrieved_chunks (id, decision_id, source_id, source_type, "
+                "chunk_text, score) VALUES (:id, :parent, 's', 'ips', 't', 0.0)"
+            ),
+        }
+        with pytest.raises(IntegrityError):
+            conn.execute(text(statements[table]), {"id": str(uuid4()), "parent": parent_id})
 
 
 # ---------------------------------------------------------------------------
@@ -182,76 +196,37 @@ def test_inserting_a_row_without_tenant_id_is_rejected(table: str) -> None:
 
 def test_users_email_unique_per_tenant_only() -> None:
     """Same email may exist across tenants, but not twice within one tenant."""
-    raw = sqlite3.connect(engine.url.database)
-    try:
-        # Insert a second tenant for the cross-tenant assertion.
-        raw.execute(
-            "INSERT OR IGNORE INTO tenants (id, name, slug, status, plan, created_at) "
-            "VALUES ('t-other', 'Other', 'other', 'active', 'standard', CURRENT_TIMESTAMP)"
-        )
-        raw.execute(
-            "INSERT INTO users (id, tenant_id, email, password_hash, role, "
-            "mfa_enrolled, email_verified, failed_login_count, created_at) "
-            "VALUES ('u1', ?, 'a@x.com', 'h', 'advisor', 0, 0, 0, CURRENT_TIMESTAMP)",
-            (DEMO_TENANT_ID,),
-        )
+    other_tenant = str(uuid4())
+    insert_user = text(
+        "INSERT INTO users (id, tenant_id, email, password_hash, role, mfa_enrolled, "
+        "email_verified, failed_login_count, created_at) VALUES (:id, :tenant, "
+        "'a@x.com', 'h', 'advisor', false, false, 0, CURRENT_TIMESTAMP)"
+    )
+    with _rolled_back_connection() as conn:
+        _insert_tenant(conn, other_tenant)
+        conn.execute(insert_user, {"id": str(uuid4()), "tenant": DEMO_TENANT_ID})
         # Same email under a DIFFERENT tenant must be allowed.
-        raw.execute(
-            "INSERT INTO users (id, tenant_id, email, password_hash, role, "
-            "mfa_enrolled, email_verified, failed_login_count, created_at) "
-            "VALUES ('u2', 't-other', 'a@x.com', 'h', 'advisor', 0, 0, 0, CURRENT_TIMESTAMP)"
-        )
-        raw.commit()
+        conn.execute(insert_user, {"id": str(uuid4()), "tenant": other_tenant})
         # Same email under the SAME tenant must be rejected.
-        with pytest.raises(sqlite3.IntegrityError):
-            raw.execute(
-                "INSERT INTO users (id, tenant_id, email, password_hash, role, "
-                "mfa_enrolled, email_verified, failed_login_count, created_at) "
-                "VALUES ('u3', ?, 'a@x.com', 'h', 'advisor', 0, 0, 0, CURRENT_TIMESTAMP)",
-                (DEMO_TENANT_ID,),
-            )
-            raw.commit()
-    finally:
-        raw.rollback()
-        raw.execute("DELETE FROM users WHERE id IN ('u1','u2','u3')")
-        raw.execute("DELETE FROM tenants WHERE id = 't-other'")
-        raw.commit()
-        raw.close()
+        with pytest.raises(IntegrityError):
+            conn.execute(insert_user, {"id": str(uuid4()), "tenant": DEMO_TENANT_ID})
 
 
 def test_clients_client_code_unique_per_tenant_only() -> None:
-    raw = sqlite3.connect(engine.url.database)
-    try:
-        raw.execute(
-            "INSERT OR IGNORE INTO tenants (id, name, slug, status, plan, created_at) "
-            "VALUES ('t-other2', 'Other2', 'other2', 'active', 'standard', CURRENT_TIMESTAMP)"
-        )
-        # C001 already exists in demo tenant from the seed; inserting it under
-        # a different tenant must succeed.
-        raw.execute(
-            "INSERT INTO clients (id, tenant_id, client_code, display_name, "
-            "risk_profile, jurisdictions, excluded_sectors, excluded_regions, "
-            "created_at) "
-            "VALUES ('c-x', 't-other2', 'C001', 'Other co', 'moderate', "
-            "'[]', '[]', '[]', CURRENT_TIMESTAMP)"
-        )
-        raw.commit()
-        # Inserting C001 a second time under the same other-tenant must fail.
-        with pytest.raises(sqlite3.IntegrityError):
-            raw.execute(
-                "INSERT INTO clients (id, tenant_id, client_code, display_name, "
-                "risk_profile, jurisdictions, excluded_sectors, excluded_regions, "
-                "created_at) "
-                "VALUES ('c-y', 't-other2', 'C001', 'Dup', 'moderate', "
-                "'[]', '[]', '[]', CURRENT_TIMESTAMP)"
-            )
-            raw.commit()
-    finally:
-        raw.rollback()
-        raw.execute("DELETE FROM clients WHERE id IN ('c-x','c-y')")
-        raw.execute("DELETE FROM tenants WHERE id = 't-other2'")
-        raw.commit()
-        raw.close()
+    other_tenant = str(uuid4())
+    insert_client = text(
+        "INSERT INTO clients (id, tenant_id, client_code, display_name, risk_profile, "
+        "jurisdictions, excluded_sectors, excluded_regions, created_at) VALUES (:id, "
+        ":tenant, 'C001', 'Other co', 'moderate', '[]', '[]', '[]', CURRENT_TIMESTAMP)"
+    )
+    with _rolled_back_connection() as conn:
+        _insert_tenant(conn, other_tenant)
+        # C001 already exists in the demo tenant from the seed; the same code
+        # under a different tenant must succeed.
+        conn.execute(insert_client, {"id": str(uuid4()), "tenant": other_tenant})
+        # A second C001 under that same tenant must fail.
+        with pytest.raises(IntegrityError):
+            conn.execute(insert_client, {"id": str(uuid4()), "tenant": other_tenant})
 
 
 # ---------------------------------------------------------------------------
@@ -260,10 +235,14 @@ def test_clients_client_code_unique_per_tenant_only() -> None:
 
 
 def test_orm_can_round_trip_decision_with_tenant_id() -> None:
-    decision_id: str
+    # A raw ORM insert bypasses the hash chain, so keep it in a throwaway
+    # tenant instead of the demo tenant whose chain other tests verify.
+    from tests.conftest import make_tenant
+
+    tenant_id = make_tenant()
     with SessionLocal() as db:
         decision = Decision(
-            tenant_id=DEMO_TENANT_ID,
+            tenant_id=tenant_id,
             question="orm round-trip",
             outcome="answered",
             llm_model="test",
@@ -273,22 +252,4 @@ def test_orm_can_round_trip_decision_with_tenant_id() -> None:
         db.commit()
         loaded = db.get(Decision, decision.id)
         assert loaded is not None
-        assert loaded.tenant_id == DEMO_TENANT_ID
-        decision_id = loaded.id
-
-    # Phase E blocks ORM deletes on audit tables. Use the fixture cleanup
-    # escape hatch here because this row is synthetic test data, not a product
-    # decision that should stay in the hash chain.
-    from tests.conftest import (
-        _restore_audit_delete_guards,
-        _suspend_audit_delete_guards,
-    )
-
-    raw = sqlite3.connect(engine.url.database)
-    try:
-        _suspend_audit_delete_guards(raw)
-        raw.execute("DELETE FROM decisions WHERE id = ?", (decision_id,))
-        _restore_audit_delete_guards(raw)
-        raw.commit()
-    finally:
-        raw.close()
+        assert loaded.tenant_id == tenant_id

@@ -17,7 +17,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--routes",
-        help="Comma-separated route specs, for example ollama:qwen2.5-coder:1.5b,local:glassbox-deterministic.",
+        help="Comma-separated route specs, for example local:glassbox-evidence-engine or ollama:qwen2.5-coder:1.5b.",
     )
     parser.add_argument(
         "--limit",

@@ -1,0 +1,15 @@
+node_modules/
+.next/
+out/
+test-results/
+playwright-report/
+# Test tooling: the Playwright suites, the screenshot script and their configs
+e2e/
+screenshots/
+playwright*.config.ts
+next-env.d.ts
+*.tsbuildinfo
+.env
+.env.*
+Dockerfile
+.dockerignore

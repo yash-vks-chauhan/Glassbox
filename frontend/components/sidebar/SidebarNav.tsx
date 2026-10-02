@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import {
   Activity,
   ArchiveRestore,
@@ -18,6 +19,8 @@ import {
 
 import { cn } from "@/lib/utils";
 import { hasAtLeastRole, useAuth, type AuthUser } from "@/lib/auth-context";
+import { getAskRuntimeStatus, getMetrics, type AskRuntimeStatus } from "@/lib/api";
+import { targetsMet } from "@/lib/governance";
 
 type NavItem = {
   href: string;
@@ -56,10 +59,36 @@ const GROUP_LABELS: Record<NavItem["group"], string> = {
 export function SidebarNav() {
   const pathname = usePathname() || "";
   const { role } = useAuth();
+  const [runtime, setRuntime] = useState<AskRuntimeStatus | null>(null);
+  const [runtimeError, setRuntimeError] = useState(false);
   // Filter once per render — the role rarely changes and the list is small.
   const visible = NAV.filter((item) => !item.requires || hasAtLeastRole(role, item.requires));
   const grouped: Record<NavItem["group"], NavItem[]> = { work: [], oversight: [], system: [] };
   for (const item of visible) grouped[item.group].push(item);
+
+  useEffect(() => {
+    let active = true;
+    async function load() {
+      try {
+        const next = await getAskRuntimeStatus();
+        if (!active) return;
+        setRuntime(next);
+        setRuntimeError(false);
+      } catch {
+        if (!active) return;
+        setRuntime(null);
+        setRuntimeError(true);
+      }
+    }
+    load();
+    const timer = window.setInterval(load, 30_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const runtimeTone = runtimeToneFor(runtime, runtimeError);
 
   return (
     <nav className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-2">
@@ -93,29 +122,58 @@ export function SidebarNav() {
         </div>
       ))}
       <div className="mt-auto px-2 pb-3">
-        <div className="flex items-center gap-2 rounded-md border border-sidebar-border/60 bg-sidebar/80 px-2.5 py-2 text-xs text-muted-foreground">
+        <div
+          data-testid="runtime-status-pill"
+          className={cn(
+            "flex items-center gap-2 rounded-md border border-sidebar-border/60 bg-sidebar/80 px-2.5 py-2 text-xs",
+            runtimeTone.className,
+          )}
+          title={runtime?.message ?? (runtimeError ? "Runtime status unavailable." : "Loading runtime status.")}
+        >
           <span className="relative flex h-2 w-2">
             <span
               className="absolute inset-0 animate-ping rounded-full opacity-60"
-              style={{ backgroundColor: "hsl(var(--state-grounded))" }}
+              style={{ backgroundColor: runtimeTone.color }}
             />
             <span
               className="relative inline-flex h-2 w-2 rounded-full"
-              style={{ backgroundColor: "hsl(var(--state-grounded))" }}
+              style={{ backgroundColor: runtimeTone.color }}
             />
           </span>
-          <span className="truncate">All controls operational</span>
+          <span className="truncate">{runtimeLabel(runtime, runtimeError)}</span>
         </div>
       </div>
     </nav>
   );
 }
 
+function runtimeLabel(runtime: AskRuntimeStatus | null, error: boolean) {
+  if (error) return "Runtime status unavailable";
+  if (!runtime) return "Checking inference route";
+  if (runtime.mode === "production" && runtime.status === "ready") return "Production inference ready";
+  if (runtime.mode === "local_evidence") return "Local evidence mode ready";
+  if (runtime.mode === "blocked") return "Production inference blocked";
+  if (runtime.mode === "demo") return "Demo inference active";
+  if (runtime.mode === "byo") return "Personal model route active";
+  if (runtime.status === "degraded") return "Inference degraded";
+  return "Model router ready";
+}
+
+function runtimeToneFor(runtime: AskRuntimeStatus | null, error: boolean) {
+  if (error || runtime?.status === "blocked") {
+    return { className: "text-flagged", color: "hsl(var(--state-flagged))" };
+  }
+  if (runtime?.status === "degraded") {
+    return { className: "text-fallback", color: "hsl(var(--state-fallback))" };
+  }
+  return { className: "text-muted-foreground", color: "hsl(var(--state-grounded))" };
+}
+
 export function SidebarBrand() {
   const { user } = useAuth();
-  const tenant = user?.tenant_slug ?? "Audit-grade AI";
+  const tenant = user?.tenant_name || user?.tenant_slug || "Audit-grade AI";
   return (
-    <div className="px-3 pt-4">
+    <div className="px-3 pb-4 pt-4">
       <Link href="/app/home" className="flex items-center gap-2.5">
         <span
           className="flex h-7 w-7 items-center justify-center rounded-md text-primary-foreground"
@@ -150,16 +208,42 @@ export function SidebarBrand() {
   );
 }
 
+/** Governance targets met, for reviewers (advisors can't read metrics). */
 export function SidebarUtility() {
+  const { role } = useAuth();
+  const canSeeMetrics = hasAtLeastRole(role, "compliance");
+  const [summary, setSummary] = useState<{ ok: number; total: number } | null>(null);
+
+  useEffect(() => {
+    if (!canSeeMetrics) return;
+    let active = true;
+    const load = () =>
+      getMetrics()
+        .then((metrics) => active && setSummary(targetsMet(metrics)))
+        .catch(() => active && setSummary(null));
+    void load();
+    const timer = window.setInterval(load, 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [canSeeMetrics]);
+
+  if (!canSeeMetrics) return null;
   return (
     <div className="px-3 pb-3 pt-2">
-      <div className="flex items-center gap-2 rounded-md border bg-card/80 px-2.5 py-2">
+      <Link
+        href="/app/insights"
+        className="flex items-center gap-2 rounded-md border bg-card/80 px-2.5 py-2 hover:bg-accent/40"
+      >
         <Activity className="h-3.5 w-3.5 text-muted-foreground" />
         <div className="flex-1 text-xs leading-tight">
-          <div className="font-medium tabular">3 / 6</div>
-          <div className="text-[10px] text-muted-foreground">SLAs in range</div>
+          <div className="font-medium tabular">
+            {summary ? `${summary.ok} / ${summary.total}` : "—"}
+          </div>
+          <div className="text-[10px] text-muted-foreground">governance targets met</div>
         </div>
-      </div>
+      </Link>
     </div>
   );
 }

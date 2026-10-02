@@ -1,0 +1,7 @@
+# Optional: neural embeddings for retrieval (BAAI/bge-small-en-v1.5 by
+# default), used when GLASSBOX_EMBEDDING_BACKEND=sentence-transformers.
+# Pulls in PyTorch; for a CPU-only install, add
+#   --extra-index-url https://download.pytorch.org/whl/cpu
+# The default "hash" backend needs none of this.
+-r requirements.txt
+sentence-transformers>=5.6,<6

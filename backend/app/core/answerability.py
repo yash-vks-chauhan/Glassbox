@@ -67,21 +67,33 @@ def _required_sources(question: str, client_id: str | None) -> list[str]:
             "exposure",
             "allocate",
             "allocation",
+            "jurisdiction",
+            "cross-border",
             "%",
             "percent",
         ]
     )
-    asks_suitability = any(term in q for term in ["suitable", "suitability", "recommend", "recommending"])
+    asks_suitability = any(term in q for term in ["suitable", "suitability", "recommend", "recommending"]) or _asks_fund_transaction(q)
     asks_risk_guidance = (
         ("risk" in q and "sector" in q)
         or ("risk" in q and "concentration" in q)
     )
     if mentioned_client and (asks_mandate or asks_suitability):
         required.append(mentioned_client)
+    if _needs_portfolio_source(question, mentioned_client):
+        required.append(_portfolio_source_id(mentioned_client))
     if mentioned_funds:
         required.extend(mentioned_funds)
     if asks_suitability or asks_risk_guidance:
         required.append("REG-SUITABILITY")
+    if _asks_tax_guidance(question):
+        required.append("REG-TAX-GUIDANCE")
+    if _asks_jurisdiction(question):
+        if mentioned_client:
+            required.append(mentioned_client)
+        required.append("REG-JURISDICTION")
+    if re.search(r"\b(exception|verbally approves?|waiv\w*)\b", q):
+        required.append("REG-EXCEPTIONS")
     return list(dict.fromkeys(required))
 
 
@@ -92,3 +104,50 @@ def _client_id(question: str) -> str | None:
 
 def _fund_ids(question: str) -> list[str]:
     return list(dict.fromkeys(match.upper() for match in re.findall(r"\bF\d{3}\b", question, flags=re.I)))
+
+
+def _portfolio_source_id(client_id: str | None) -> str:
+    return f"PORTFOLIO-{client_id}" if client_id else ""
+
+
+def _asks_fund_transaction(question: str) -> bool:
+    return bool(
+        re.search(r"\b(can|may|should|would)\b", question, re.I)
+        and re.search(r"\b(buy|hold|invest|put|allocate|count|use|treat)\b", question, re.I)
+        and re.search(r"\bF\d{3}\b|\bhigh-risk equity fund\b", question, re.I)
+    )
+
+
+def _asks_tax_guidance(question: str) -> bool:
+    q = question.lower()
+    return bool(
+        re.search(r"\b(tax|tax rate|capital gains|vat)\b", q)
+        and re.search(
+            r"\b(source|evidence|memo|approved|before|support|what should|do when|handling|cite|advisor)\b",
+            q,
+        )
+    )
+
+
+def _asks_jurisdiction(question: str) -> bool:
+    return bool(
+        re.search(r"\b(jurisdiction|jurisdictions|cross-border|country|countries)\b", question, re.I)
+        and re.search(r"\b(C\d{3}|client|ips|constraint|govern|review|documented)\b", question, re.I)
+    )
+
+
+def _needs_portfolio_source(question: str, client_id: str | None) -> bool:
+    if not client_id:
+        return False
+    q = question.lower()
+    return bool(
+        re.search(
+            r"\b(current|existing|portfolio|holding|holdings|post[- ]trade|after|before recommending|recommend\w*|add|breach\w*)\b",
+            q,
+        )
+        and re.search(
+            r"\b(client|C\d{3}|technology|sector|liquid|liquidity|F\d{3}|suitable|recommend\w*)\b",
+            question,
+            re.I,
+        )
+    )

@@ -1,0 +1,6 @@
+# Correctness-focused lint (pyflakes): unused imports/variables, undefined
+# names, redefinitions. Style is left to the existing code conventions.
+target-version = "py312"
+
+[lint]
+select = ["F"]

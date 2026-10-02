@@ -16,45 +16,69 @@ import { OutcomeBadge } from "@/components/OutcomeBadge";
 import {
   getAuditSummaries,
   getMetrics,
+  listEscalations,
+  listLibrary,
   type AuditSummary,
+  type Escalation,
+  type LibraryDocument,
   type MetricsSummary,
 } from "@/lib/api";
+import { KIND_LABEL, libraryHref } from "@/lib/library";
 import { hasAtLeastRole, useAuth } from "@/lib/auth-context";
 import { useClients } from "@/lib/clients-hooks";
-import { classify } from "@/lib/outcomes";
+import { useNow } from "@/lib/use-now";
 import { Skeleton } from "@/components/ui/skeleton";
+
+const ACTIVE_ESCALATION = new Set<Escalation["status"]>(["open", "in_review"]);
+
+function greetingFor(hour: number) {
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
+}
 
 export default function HomePage() {
   const { clients } = useClients();
-  const { role } = useAuth();
+  const { role, user } = useAuth();
   // `/metrics/summary` is compliance+; advisors would otherwise get a noisy
   // 403 banner on every 15-second poll. Skip the call entirely for them.
   const canSeeMetrics = hasAtLeastRole(role, "compliance");
+  const isReviewer = canSeeMetrics;
   const getClient = (id: string | null | undefined) =>
     id ? clients.find((c) => c.id === id) : undefined;
   const [audits, setAudits] = useState<AuditSummary[] | null>(null);
+  const [escalations, setEscalations] = useState<Escalation[] | null>(null);
   const [metrics, setMetrics] = useState<MetricsSummary | null>(null);
+  const [documents, setDocuments] = useState<LibraryDocument[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [todayLabel, setTodayLabel] = useState("Today");
-  const [nowMs, setNowMs] = useState<number | null>(null);
+  // Client-only clock (null while server rendering), in the viewer's own
+  // locale and time zone.
+  const nowMs = useNow();
+  const todayLabel =
+    nowMs === null
+      ? "Today"
+      : new Intl.DateTimeFormat(undefined, {
+          weekday: "long",
+          month: "short",
+          day: "numeric",
+        }).format(nowMs);
+  const greeting = nowMs === null ? "Welcome" : greetingFor(new Date(nowMs).getHours());
 
   useEffect(() => {
-    setTodayLabel(
-      new Intl.DateTimeFormat("en-US", {
-        weekday: "long",
-        month: "short",
-        day: "numeric",
-        timeZone: "Europe/Zurich",
-      }).format(new Date()),
-    );
-    setNowMs(Date.now());
+    listLibrary()
+      .then(setDocuments)
+      .catch(() => setDocuments([]));
 
     let active = true;
     async function load() {
       try {
-        const audits = await getAuditSummaries(30);
+        const [recent, queue] = await Promise.all([
+          getAuditSummaries(30),
+          listEscalations(200),
+        ]);
         if (!active) return;
-        setAudits(audits);
+        setAudits(recent);
+        setEscalations(queue);
         if (canSeeMetrics) {
           const m = await getMetrics();
           if (!active) return;
@@ -71,15 +95,33 @@ export default function HomePage() {
       active = false;
       window.clearInterval(t);
     };
-  }, []);
+  }, [canSeeMetrics]);
 
-  const today = useMemo(() => {
-    if (!audits) return null;
-    const flagged = audits.filter((a) => classify(a) === "flagged").length;
-    const refused = audits.filter((a) => classify(a) === "refused").length;
-    const fallback = audits.filter((a) => classify(a) === "fallback").length;
-    return { flagged, refused, fallback };
-  }, [audits]);
+  // Escalations are scoped by the API: reviewers see the tenant's queue,
+  // advisors see the ones they raised.
+  const queue = useMemo(() => {
+    if (!escalations || nowMs === null) return null;
+    const active = escalations.filter((e) => ACTIVE_ESCALATION.has(e.status));
+    return {
+      active: active.length,
+      mine: active.filter((e) => e.assigned_to_user_id === user?.user_id).length,
+      unclaimed: active.filter((e) => !e.assigned_to_user_id).length,
+      breached: active.filter((e) => new Date(e.sla_due_at).getTime() < nowMs).length,
+    };
+  }, [escalations, nowMs, user?.user_id]);
+
+  // Most recently updated approved documents (only those that carry a date).
+  const recentDocuments = useMemo(
+    () =>
+      (documents ?? [])
+        .filter((d) => d.updated_on)
+        .sort((a, b) => (a.updated_on! < b.updated_on! ? 1 : -1))
+        .slice(0, 4),
+    [documents],
+  );
+
+  const firstName =
+    user?.display_name?.trim().split(/\s+/)[0] || user?.email.split("@")[0] || "";
 
   return (
     <PageContainer>
@@ -87,7 +129,7 @@ export default function HomePage() {
         eyebrow={"Operational view"}
         title={
           <span className="flex items-baseline gap-2">
-            Good morning, Sarah
+            {firstName ? `${greeting}, ${firstName}` : greeting}
             <span className="font-sans text-sm font-normal text-muted-foreground">
               · {todayLabel}
             </span>
@@ -99,17 +141,23 @@ export default function HomePage() {
       <div className="grid gap-4 lg:grid-cols-3">
         <KpiCard
           icon={ClipboardList}
-          label="Open flags assigned to me"
-          value={today?.flagged ?? "—"}
-          hint={today ? `${today.flagged} need review, ${today.refused} refusals to close` : null}
-          href="/app/review"
+          label={isReviewer ? "Open escalations" : "My open escalations"}
+          value={queue?.active ?? "—"}
+          hint={
+            queue
+              ? isReviewer
+                ? `${queue.mine} assigned to you · ${queue.unclaimed} unclaimed`
+                : "Waiting on a compliance reviewer"
+              : null
+          }
+          href={isReviewer ? "/app/review" : "/app/audit"}
         />
         <KpiCard
           icon={FileWarning}
-          label="SLA breaches today"
-          value={today ? Math.max(0, today.flagged - 4) : "—"}
-          hint="Target: 0. Triage flagged items < 4h"
-          href="/app/review"
+          label="Past their review SLA"
+          value={queue?.breached ?? "—"}
+          hint="Target: 0. Open escalations whose SLA deadline has passed"
+          href={isReviewer ? "/app/review" : "/app/audit"}
         />
         <KpiCard
           icon={ScanLine}
@@ -206,13 +254,26 @@ export default function HomePage() {
 
           <div className="mt-6 rounded-lg border bg-card/60 p-4">
             <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-              <Sparkles className="h-3 w-3" /> What's new
+              <Sparkles className="h-3 w-3" /> Recently updated documents
             </div>
-            <ul className="space-y-1.5 text-sm text-muted-foreground">
-              <li>Grounding scorer retrained on 184 labelled reviews.</li>
-              <li>Determinism harness now runs nightly at 02:00 UTC.</li>
-              <li>PDF audit-binder export added to Audit log.</li>
-            </ul>
+            {documents === null ? (
+              <Skeleton className="h-16 rounded-md" />
+            ) : recentDocuments.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No dated document updates yet.</p>
+            ) : (
+              <ul className="space-y-1.5 text-sm">
+                {recentDocuments.map((d) => (
+                  <li key={d.source_id} className="flex items-baseline justify-between gap-3">
+                    <Link href={libraryHref(d.source_id)} className="min-w-0 truncate hover:underline">
+                      {d.title}
+                    </Link>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {KIND_LABEL[d.source_type]} · {d.updated_on}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </section>
       </div>

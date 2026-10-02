@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   ResponsiveContainer,
   CartesianGrid,
@@ -18,39 +19,22 @@ import { Activity, ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 import { PageContainer, PageHeader } from "@/components/PageContainer";
 import { Sparkline } from "@/components/insights/Sparkline";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getAuditSummaries, getMetrics, type AuditSummary, type MetricsSummary } from "@/lib/api";
-import { classify } from "@/lib/outcomes";
+import {
+  getMetrics,
+  getMetricsTimeseries,
+  type MetricsPoint,
+  type MetricsSummary,
+  type MetricsTimeseries,
+} from "@/lib/api";
+import {
+  GOVERNANCE_TARGETS as TARGETS,
+  targetStatus as statusFor,
+  targetsMet,
+  type RateKey,
+} from "@/lib/governance";
 import { cn } from "@/lib/utils";
 
-type Target = {
-  key: keyof MetricsSummary;
-  label: string;
-  description: string;
-  target: number;
-  /** When true, lower is better (e.g. hallucination rate). */
-  lowerIsBetter?: boolean;
-  format?: "percent" | "count";
-};
-
-const TARGETS: Target[] = [
-  { key: "audit_completeness", label: "Audit completeness", description: "Decisions with full replay evidence", target: 0.98, format: "percent" },
-  { key: "hallucination_rate", label: "Low-grounding rate", description: "Answers under 60% support", target: 0.05, lowerIsBetter: true, format: "percent" },
-  { key: "refusal_rate", label: "Refusal rate", description: "Out-of-scope correctly refused", target: 0.18, format: "percent" },
-  { key: "flagged_rate", label: "Flagged rate", description: "Routed for supervisor review", target: 0.25, format: "percent" },
-  { key: "avg_determinism", label: "Determinism", description: "Repeated-run answer stability", target: 0.9, format: "percent" },
-];
-
-function statusFor(target: Target, value: number | null) {
-  if (value === null || value === undefined) return "pending" as const;
-  if (target.lowerIsBetter) {
-    if (value <= target.target) return "ok" as const;
-    if (value <= target.target * 2) return "warn" as const;
-    return "danger" as const;
-  }
-  if (value >= target.target) return "ok" as const;
-  if (value >= target.target * 0.7) return "warn" as const;
-  return "danger" as const;
-}
+const TREND_DAYS = 14;
 
 const STATUS_COLOR = {
   ok: "var(--state-grounded)",
@@ -59,85 +43,93 @@ const STATUS_COLOR = {
   pending: "var(--muted-foreground)",
 } as const;
 
-function fakeHistory(seed: number, length = 14): number[] {
-  // Stable pseudo-random for the sparkline so values don't jitter on each render.
-  const out: number[] = [];
-  let v = (seed * 0.13) % 1;
-  for (let i = 0; i < length; i += 1) {
-    v = (v + Math.sin(seed + i) * 0.08 + 1) % 1;
-    out.push(Math.max(0.02, Math.min(0.98, v)));
-  }
-  return out;
+function mean(values: Array<number | null>): number | null {
+  const present = values.filter((v): v is number => v !== null);
+  return present.length ? present.reduce((a, b) => a + b, 0) / present.length : null;
+}
+
+/** Last-7-day average minus the 7 days before it; null without both weeks. */
+function weekOverWeek(points: MetricsPoint[], key: RateKey): number | null {
+  const values = points.map((p) => p[key]);
+  const current = mean(values.slice(-7));
+  const previous = mean(values.slice(-14, -7));
+  return current === null || previous === null ? null : current - previous;
+}
+
+function formatAge(seconds: number) {
+  if (seconds < 5) return "just now";
+  if (seconds < 60) return `${seconds}s ago`;
+  return `${Math.floor(seconds / 60)}m ago`;
 }
 
 export default function InsightsPage() {
   const [metrics, setMetrics] = useState<MetricsSummary | null>(null);
-  const [audits, setAudits] = useState<AuditSummary[] | null>(null);
+  const [series, setSeries] = useState<MetricsTimeseries | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [syncedAt, setSyncedAt] = useState<number | null>(null);
+  const [nowMs, setNowMs] = useState<number | null>(null);
 
   useEffect(() => {
     let active = true;
     async function load() {
       try {
-        const [m, a] = await Promise.all([getMetrics(), getAuditSummaries(200)]);
+        const [m, s] = await Promise.all([getMetrics(), getMetricsTimeseries(TREND_DAYS)]);
         if (!active) return;
         setMetrics(m);
-        setAudits(a);
-      } catch {
-        /* ignore for the demo */
+        setSeries(s);
+        setSyncedAt(Date.now());
+        setError(null);
+      } catch (err) {
+        if (active) setError(err instanceof Error ? err.message : "Could not load metrics");
       }
     }
     load();
-    const t = window.setInterval(load, 15_000);
+    const poll = window.setInterval(load, 15_000);
+    const tick = window.setInterval(() => setNowMs(Date.now()), 5_000);
     return () => {
       active = false;
-      window.clearInterval(t);
+      window.clearInterval(poll);
+      window.clearInterval(tick);
     };
   }, []);
 
-  const headlineGreen = useMemo(() => {
-    if (!metrics) return null;
-    let ok = 0;
-    for (const t of TARGETS) {
-      const v = (metrics[t.key] as number | null) ?? null;
-      if (statusFor(t, v) === "ok") ok += 1;
-    }
-    return { ok, total: TARGETS.length };
-  }, [metrics]);
+  const headline = useMemo(() => (metrics ? targetsMet(metrics) : null), [metrics]);
 
-  const dailyVolume = useMemo(() => {
-    if (!audits) return null;
-    const map = new Map<string, { total: number; flagged: number; refused: number; grounded: number }>();
-    for (const a of audits) {
-      const d = new Date(a.created_at).toISOString().slice(0, 10);
-      const e = map.get(d) ?? { total: 0, flagged: 0, refused: 0, grounded: 0 };
-      e.total += 1;
-      const k = classify(a);
-      if (k === "flagged") e.flagged += 1;
-      if (k === "refused") e.refused += 1;
-      if (k === "answered") e.grounded += 1;
-      map.set(d, e);
-    }
-    return Array.from(map.entries())
-      .sort((a, b) => (a[0] < b[0] ? -1 : 1))
-      .slice(-14)
-      .map(([day, v]) => ({ day: day.slice(5), ...v }));
-  }, [audits]);
+  const volume = useMemo(
+    () =>
+      series?.points.map((p) => ({
+        day: p.date.slice(5),
+        grounded: p.answered,
+        flagged: p.flagged,
+        refused: p.refused,
+        fallback: p.fallback,
+      })) ?? null,
+    [series],
+  );
+  const volumeTotal = series?.points.reduce((sum, p) => sum + p.total, 0) ?? 0;
+  const syncLabel =
+    syncedAt === null ? "Loading…" : `Updated ${formatAge(Math.max(0, Math.round(((nowMs ?? syncedAt) - syncedAt) / 1000)))}`;
 
   return (
     <PageContainer size="wide">
       <PageHeader
         eyebrow="Governance"
         title="Insights"
-        description="What the regulator will ask about. Every metric ships with a target and a 7-day trend."
+        description={`What the regulator will ask about. Every metric has a target and a ${TREND_DAYS}-day daily trend; click one to see the decisions behind it.`}
         actions={
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Activity className="h-3.5 w-3.5" />
-            Refreshes every 15s · last sync just now
+            Refreshes every 15s · {syncLabel}
           </div>
         }
       />
 
-      {/* Headline */}
+      {error ? (
+        <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+          {error}
+        </div>
+      ) : null}
+
       <div className="mb-6 rounded-xl border bg-card p-5">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <div>
@@ -146,9 +138,9 @@ export default function InsightsPage() {
             </div>
             <div className="mt-1.5 flex items-baseline gap-3">
               <span className="font-serif text-4xl font-semibold tabular tracking-tight">
-                {headlineGreen ? `${headlineGreen.ok} / ${headlineGreen.total}` : "—"}
+                {headline ? `${headline.ok} / ${headline.total}` : "—"}
               </span>
-              <span className="text-sm text-muted-foreground">SLAs in range</span>
+              <span className="text-sm text-muted-foreground">targets met</span>
             </div>
           </div>
           <div className="text-sm text-muted-foreground">
@@ -158,7 +150,9 @@ export default function InsightsPage() {
                 <span className="tabular text-foreground">
                   {Math.round(metrics.audit_completeness * 100)}%
                 </span>{" "}
-                fully replayable
+                fully replayable ·{" "}
+                <span className="tabular text-foreground">{metrics.reviews}</span> reviews ·{" "}
+                <span className="tabular text-foreground">{metrics.labelled_claims}</span> labelled claims
               </>
             ) : null}
           </div>
@@ -166,15 +160,13 @@ export default function InsightsPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {TARGETS.map((t, i) => {
-          const value = (metrics?.[t.key] as number | null) ?? null;
+        {TARGETS.map((t) => {
+          const value = metrics ? (metrics[t.key] ?? null) : null;
           const status = statusFor(t, value);
-          const history = fakeHistory(i + 1);
-          const last = history[history.length - 1];
-          const prev = history[history.length - 7] ?? last;
-          const delta = last - prev;
-          return (
-            <div key={t.key} className="rounded-xl border bg-card p-4">
+          const history = series?.points.map((p) => p[t.key]) ?? [];
+          const delta = series ? weekOverWeek(series.points, t.key) : null;
+          const body = (
+            <>
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
@@ -190,11 +182,7 @@ export default function InsightsPage() {
 
               <div className="mt-3 flex items-baseline gap-3">
                 <span className="font-serif text-3xl font-semibold tabular tracking-tight">
-                  {metrics
-                    ? value === null
-                      ? "—"
-                      : `${Math.round(value * 100)}%`
-                    : "—"}
+                  {value === null ? "—" : `${Math.round(value * 100)}%`}
                 </span>
                 <span className="text-xs text-muted-foreground">
                   target {t.lowerIsBetter ? "≤" : "≥"} {Math.round(t.target * 100)}%
@@ -202,41 +190,64 @@ export default function InsightsPage() {
               </div>
 
               <div className="mt-2 flex items-center gap-2 text-[11px]">
-                <DeltaPill delta={delta} lowerIsBetter={t.lowerIsBetter} />
-                <span className="text-muted-foreground">vs. last week</span>
+                {delta === null ? (
+                  <span className="text-muted-foreground">Not enough history for a weekly comparison</span>
+                ) : (
+                  <>
+                    <DeltaPill delta={delta} lowerIsBetter={t.lowerIsBetter} />
+                    <span className="text-muted-foreground">vs. the previous 7 days</span>
+                  </>
+                )}
               </div>
 
-              <div
-                className="mt-3 h-10"
-                style={{ color: `hsl(${STATUS_COLOR[status]})` }}
-              >
-                <Sparkline values={history} />
+              <div className="mt-3 h-10" style={{ color: `hsl(${STATUS_COLOR[status]})` }}>
+                {series ? (
+                  <Sparkline
+                    values={history}
+                    domain={[0, 1]}
+                    label={`${t.label}, daily over the last ${TREND_DAYS} days`}
+                  />
+                ) : (
+                  <Skeleton className="h-full w-full" />
+                )}
               </div>
+            </>
+          );
+          return t.href ? (
+            <Link
+              key={t.key}
+              href={t.href}
+              className="rounded-xl border bg-card p-4 transition-shadow hover:shadow-sm"
+            >
+              {body}
+            </Link>
+          ) : (
+            <div key={t.key} className="rounded-xl border bg-card p-4">
+              {body}
             </div>
           );
         })}
       </div>
 
-      {/* Volume + outcome split */}
       <div className="mt-6 grid gap-4 lg:grid-cols-[1.6fr_1fr]">
         <div className="rounded-xl border bg-card p-4">
           <div className="mb-3 flex items-center justify-between">
             <div>
               <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                Decision volume — last 14 days
+                Decision volume — last {TREND_DAYS} days
               </div>
               <div className="font-serif text-base font-semibold tracking-tight">
-                {audits?.length ?? 0} total
+                {volumeTotal} total
               </div>
             </div>
             <Legend />
           </div>
           <div className="h-56">
-            {dailyVolume === null ? (
+            {volume === null ? (
               <Skeleton className="h-full w-full" />
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={dailyVolume} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
+                <AreaChart data={volume} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
                   <defs>
                     <linearGradient id="g-grounded" x1="0" x2="0" y1="0" y2="1">
                       <stop offset="0%" stopColor="hsl(var(--state-grounded))" stopOpacity={0.4} />
@@ -263,9 +274,9 @@ export default function InsightsPage() {
                       fontSize: 12,
                     }}
                   />
-                  <Area type="monotone" dataKey="grounded" stroke="hsl(var(--state-grounded))" fill="url(#g-grounded)" strokeWidth={1.6} />
-                  <Area type="monotone" dataKey="flagged" stroke="hsl(var(--state-flagged))" fill="url(#g-flagged)" strokeWidth={1.6} />
-                  <Area type="monotone" dataKey="refused" stroke="hsl(var(--state-refused))" fill="url(#g-refused)" strokeWidth={1.6} />
+                  <Area type="monotone" dataKey="grounded" name="Grounded" stroke="hsl(var(--state-grounded))" fill="url(#g-grounded)" strokeWidth={1.6} />
+                  <Area type="monotone" dataKey="flagged" name="Flagged" stroke="hsl(var(--state-flagged))" fill="url(#g-flagged)" strokeWidth={1.6} />
+                  <Area type="monotone" dataKey="refused" name="Refused" stroke="hsl(var(--state-refused))" fill="url(#g-refused)" strokeWidth={1.6} />
                 </AreaChart>
               </ResponsiveContainer>
             )}
@@ -277,9 +288,9 @@ export default function InsightsPage() {
             <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
               Outcome mix
             </div>
-            <div className="font-serif text-base font-semibold tracking-tight">By total</div>
+            <div className="font-serif text-base font-semibold tracking-tight">All decisions</div>
           </div>
-          <OutcomeMixBars audits={audits} />
+          <OutcomeMixBars counts={metrics?.outcome_counts ?? null} />
         </div>
       </div>
     </PageContainer>
@@ -287,21 +298,18 @@ export default function InsightsPage() {
 }
 
 function DeltaPill({ delta, lowerIsBetter }: { delta: number; lowerIsBetter?: boolean }) {
-  const positive = lowerIsBetter ? delta < 0 : delta > 0;
-  const Icon = Math.abs(delta) < 0.005 ? Minus : positive ? ArrowUpRight : ArrowDownRight;
+  const flat = Math.abs(delta) < 0.005;
+  const improving = lowerIsBetter ? delta < 0 : delta > 0;
+  const Icon = flat ? Minus : delta > 0 ? ArrowUpRight : ArrowDownRight;
   return (
     <span
       className={cn(
         "inline-flex items-center gap-0.5 rounded-sm border px-1 py-0.5 tabular",
-        Math.abs(delta) < 0.005
-          ? "text-muted-foreground"
-          : positive
-            ? "state-grounded"
-            : "state-flagged",
+        flat ? "text-muted-foreground" : improving ? "state-grounded" : "state-flagged",
       )}
     >
       <Icon className="h-3 w-3" />
-      {(Math.abs(delta) * 100).toFixed(1)}%
+      {(Math.abs(delta) * 100).toFixed(1)} pts
     </span>
   );
 }
@@ -328,18 +336,12 @@ function Swatch({ token, label }: { token: "grounded" | "flagged" | "refused"; l
   );
 }
 
-function OutcomeMixBars({ audits }: { audits: AuditSummary[] | null }) {
-  if (!audits) {
+function OutcomeMixBars({ counts }: { counts: MetricsSummary["outcome_counts"] | null }) {
+  if (!counts) {
     return <Skeleton className="h-48 w-full" />;
   }
-  const counts = { grounded: 0, flagged: 0, refused: 0, fallback: 0 };
-  for (const a of audits) {
-    const k = classify(a);
-    if (k === "answered") counts.grounded += 1;
-    else counts[k] += 1;
-  }
   const data = [
-    { key: "Grounded", value: counts.grounded, color: "var(--state-grounded)" },
+    { key: "Grounded", value: counts.answered, color: "var(--state-grounded)" },
     { key: "Flagged", value: counts.flagged, color: "var(--state-flagged)" },
     { key: "Refused", value: counts.refused, color: "var(--state-refused)" },
     { key: "Fallback", value: counts.fallback, color: "var(--state-fallback)" },

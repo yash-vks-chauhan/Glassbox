@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import joblib
 from sklearn.linear_model import LogisticRegression
@@ -14,15 +13,26 @@ from app.core.embeddings import embed_texts
 
 
 DATA_PATH = BACKEND_DIR / "data" / "training" / "grounding.jsonl"
+# Reviewer verdicts exported by scripts/export_review_labels.py, if present.
+REVIEW_LABELS_PATH = BACKEND_DIR / "data" / "training" / "review_labels.jsonl"
 ARTIFACT = BACKEND_DIR / "app" / "ml" / "artifacts" / "grounding_scorer.joblib"
 
 
-def load_rows() -> list[dict[str, object]]:
+def _read_jsonl(path) -> list[dict[str, object]]:
+    if not path.exists():
+        return []
     return [
         json.loads(line)
-        for line in DATA_PATH.read_text(encoding="utf-8").splitlines()
+        for line in path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
+
+
+def load_rows() -> list[dict[str, object]]:
+    synthetic = _read_jsonl(DATA_PATH)
+    reviewed = _read_jsonl(REVIEW_LABELS_PATH)
+    print(f"training rows: {len(synthetic)} synthetic + {len(reviewed)} reviewer-labelled")
+    return synthetic + reviewed
 
 
 def features(claim: str, source: str) -> list[float]:

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import json
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.core.auth import mfa
 from app.core.auth.passwords import hash_password
 from app.db import SessionLocal, init_db
-from app.models_db import DEMO_TENANT_ID, User
+from app.models_db import DEMO_TENANT_ID, RateLimitBucket, User
 
 
 PASSWORD = "Phase-F-Sup3rSecur3!"
@@ -34,6 +34,7 @@ def upsert_user(*, email: str, role: str, mfa_enrolled: bool = False) -> None:
                 email_verified=True,
             )
             db.add(user)
+            db.flush()  # assigns user.id, which the MFA ciphertext is bound to
         else:
             user.password_hash = hash_password(PASSWORD)
             user.role = role
@@ -42,7 +43,7 @@ def upsert_user(*, email: str, role: str, mfa_enrolled: bool = False) -> None:
             user.failed_login_count = 0
         if mfa_enrolled:
             user.mfa_enrolled = True
-            user.mfa_secret = mfa.pack_secret(ADMIN_MFA_SECRET, [])
+            user.mfa_secret = mfa.pack_secret(ADMIN_MFA_SECRET, [], user_id=user.id)
         else:
             user.mfa_enrolled = False
             user.mfa_secret = None
@@ -51,6 +52,9 @@ def upsert_user(*, email: str, role: str, mfa_enrolled: bool = False) -> None:
 
 def main() -> None:
     init_db()
+    with SessionLocal() as db:
+        db.execute(delete(RateLimitBucket))
+        db.commit()
     upsert_user(email=USERS["advisor"], role="advisor")
     upsert_user(email=USERS["admin"], role="admin", mfa_enrolled=True)
     print(

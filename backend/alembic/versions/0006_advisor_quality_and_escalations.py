@@ -8,6 +8,12 @@ Create Date: 2026-05-24
 from alembic import op
 import sqlalchemy as sa
 
+from app.core.migration_utils import (
+    add_columns_if_missing,
+    create_index_if_missing,
+    has_table,
+)
+
 
 revision = "0006_advisor_quality_and_escalations"
 down_revision = "0005_phase_e_hardening"
@@ -16,26 +22,44 @@ depends_on = None
 
 
 def upgrade() -> None:
-    with op.batch_alter_table("model_eval_runs") as batch:
-        batch.add_column(
-            sa.Column(
-                "advisor_quality_score",
-                sa.Float(),
-                nullable=False,
-                server_default="0.0",
-            )
+    for table in ("model_eval_runs", "model_eval_results"):
+        add_columns_if_missing(
+            table,
+            [
+                sa.Column(
+                    "advisor_quality_score",
+                    sa.Float(),
+                    nullable=False,
+                    server_default="0.0",
+                )
+            ],
         )
 
-    with op.batch_alter_table("model_eval_results") as batch:
-        batch.add_column(
-            sa.Column(
-                "advisor_quality_score",
-                sa.Float(),
-                nullable=False,
-                server_default="0.0",
-            )
-        )
+    if not has_table("escalations"):
+        _create_escalations()
+    create_index_if_missing("ix_escalations_tenant_id", "escalations", ["tenant_id"])
+    create_index_if_missing("ix_escalations_decision_id", "escalations", ["decision_id"])
+    create_index_if_missing("ix_escalations_status", "escalations", ["status"])
+    # One *active* escalation per decision; resolved ones don't block a new
+    # escalation. The partial predicate must be given per dialect.
+    create_index_if_missing(
+        "uq_escalations_active_decision",
+        "escalations",
+        ["tenant_id", "decision_id"],
+        unique=True,
+        sqlite_where=sa.text("status IN ('open', 'in_review')"),
+        postgresql_where=sa.text("status IN ('open', 'in_review')"),
+    )
 
+    if not has_table("escalation_events"):
+        _create_escalation_events()
+    create_index_if_missing("ix_escalation_events_tenant_id", "escalation_events", ["tenant_id"])
+    create_index_if_missing(
+        "ix_escalation_events_escalation_id", "escalation_events", ["escalation_id"]
+    )
+
+
+def _create_escalations() -> None:
     op.create_table(
         "escalations",
         sa.Column("id", sa.String(length=36), primary_key=True),
@@ -53,17 +77,9 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     )
-    op.create_index("ix_escalations_tenant_id", "escalations", ["tenant_id"])
-    op.create_index("ix_escalations_decision_id", "escalations", ["decision_id"])
-    op.create_index("ix_escalations_status", "escalations", ["status"])
-    op.create_index(
-        "uq_escalations_active_decision",
-        "escalations",
-        ["tenant_id", "decision_id"],
-        unique=True,
-        sqlite_where=sa.text("status IN ('open', 'in_review')"),
-    )
 
+
+def _create_escalation_events() -> None:
     op.create_table(
         "escalation_events",
         sa.Column("id", sa.String(length=36), primary_key=True),
@@ -76,8 +92,6 @@ def upgrade() -> None:
         sa.Column("note", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
-    op.create_index("ix_escalation_events_tenant_id", "escalation_events", ["tenant_id"])
-    op.create_index("ix_escalation_events_escalation_id", "escalation_events", ["escalation_id"])
 
 
 def downgrade() -> None:

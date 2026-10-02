@@ -25,6 +25,8 @@ export function TrustMetaBar({ result, latencyMs, groundingScore }: Props) {
   const [open, setOpen] = useState(false);
   const sourceCount = result.citations.length;
   const grounding = groundingScore ?? result.trust.grounding_score;
+  const runtime = runtimeLabel(result);
+  const verification = verificationLabel(result);
 
   return (
     <div
@@ -35,6 +37,7 @@ export function TrustMetaBar({ result, latencyMs, groundingScore }: Props) {
     >
       <button
         type="button"
+        aria-label="Decision trust details"
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left uppercase tracking-[0.14em] text-muted-foreground hover:text-foreground"
       >
@@ -61,6 +64,9 @@ export function TrustMetaBar({ result, latencyMs, groundingScore }: Props) {
 
       {open ? (
         <div className="grid gap-2 border-t border-border/60 p-2.5 text-[12px] normal-case">
+          <Row icon={Layers} label="Runtime" value={runtime} />
+          <Row icon={Hash} label="Audit replay" value="Saved" />
+          <Row icon={Sigma} label="Verification" value={verification} />
           <Row icon={Sigma} label="Grounding score" value={fmtPct(grounding)} />
           <Row
             icon={Layers}
@@ -70,7 +76,7 @@ export function TrustMetaBar({ result, latencyMs, groundingScore }: Props) {
           />
           <Row
             icon={Hash}
-            label="Model route"
+            label="Raw route"
             value={
               <code className="font-mono text-[11px] text-foreground">
                 {result.trust.model_route ?? "not reported"}
@@ -107,6 +113,23 @@ export function TrustMetaBar({ result, latencyMs, groundingScore }: Props) {
       ) : null}
     </div>
   );
+}
+
+function runtimeLabel(result: AskResponse) {
+  const route = result.trust.model_route ?? "";
+  if (route === "local:glassbox-evidence-engine") return "Private local evidence mode";
+  if (route === "local:glassbox-deterministic-fallback") return "Safe fallback route";
+  if (route === "local:glassbox-deterministic") return "Demo inference route";
+  if (route.startsWith("openrouter:")) return "Provider model route";
+  if (route.startsWith("ollama:") || route.startsWith("vllm:")) return "Approved router candidate";
+  return "Model route recorded";
+}
+
+function verificationLabel(result: AskResponse) {
+  if (result.outcome === "refused") return "Refusal guardrail applied";
+  if (result.outcome === "fallback") return "Fallback classifier used";
+  if (result.citations.length > 0) return "Source-backed claims kept";
+  return "No citations returned";
 }
 
 function Separator() {

@@ -8,7 +8,7 @@ from typing import Any
 
 from app.config import get_settings
 from app.core.model_approval import approved_model_routes, route_eval_approval
-from app.core.model_router import route_from_spec
+from app.core.model_router import LOCAL_EVIDENCE_ROUTE, route_from_spec
 from app.db import SessionLocal, init_db
 
 
@@ -41,6 +41,20 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     route = route_from_spec(args.route)
     if route.provider == "local":
+        if route.spec == LOCAL_EVIDENCE_ROUTE:
+            payload = {
+                "route": route.spec,
+                "approved": True,
+                "approval": {
+                    "approved": True,
+                    "reason": "local evidence mode is enabled with GLASSBOX_LOCAL_EVIDENCE_MODE=1 and does not use APPROVED_MODELS",
+                    "run_id": None,
+                    "created_at": None,
+                },
+                "message": "No promotion is required for the private local evidence route.",
+            }
+            _print(payload, json_output=args.json_output)
+            return 0
         payload = {
             "route": args.route,
             "approved": False,

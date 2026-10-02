@@ -24,6 +24,10 @@ export type ClientRecord = {
   ipsUpdatedAt: string;
   aumEur: number;
   advisor: string;
+  /** Decisions about this client that the viewer can see. */
+  decisionCount?: number;
+  flaggedCount?: number;
+  lastDecisionAt?: string | null;
 };
 
 type ClientOutWire = {
@@ -42,6 +46,9 @@ type ClientOutWire = {
   aum_eur: number | null;
   advisor_name: string | null;
   created_at: string;
+  decision_count?: number;
+  flagged_count?: number;
+  last_decision_at?: string | null;
 };
 
 // In-app event used by the New Client dialog to ping live listeners (the
@@ -65,6 +72,9 @@ function fromWire(c: ClientOutWire): ClientRecord {
     ipsUpdatedAt: c.ips_updated_at ? c.ips_updated_at.slice(0, 10) : "",
     aumEur: c.aum_eur ?? 0,
     advisor: c.advisor_name ?? "",
+    decisionCount: c.decision_count ?? 0,
+    flaggedCount: c.flagged_count ?? 0,
+    lastDecisionAt: c.last_decision_at ?? null,
   };
 }
 

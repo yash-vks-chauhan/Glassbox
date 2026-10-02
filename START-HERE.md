@@ -1,5 +1,7 @@
 # START HERE — How to Use This Pack with Codex
 
+> **Status (October 2026):** every phase in `tasks/` has been built. To run, test or deploy GlassBox, start from the [README](README.md); this file is kept as a record of how the build was driven.
+
 You have everything needed to build GlassBox. Here's the order and the workflow.
 
 ## Files in this pack

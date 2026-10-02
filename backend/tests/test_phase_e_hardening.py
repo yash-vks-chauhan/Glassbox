@@ -21,19 +21,17 @@ Mapped one-for-one against docs/SECURITY-IMPLEMENTATION.md, Phase E "Done when":
 
 from __future__ import annotations
 
-import sqlite3
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 
 from app.config import get_settings
 from app.core.auth import service as auth_service
 from app.core.auth.tokens import issue_access_token
 from app.core.security.audit_hash import (
-    canonical_decision_payload,
-    compute_row_hash,
     verify_chain,
 )
 from app.core.security.encryption import decrypt, encrypt
@@ -44,7 +42,6 @@ from app.models_db import (
     DEMO_TENANT_ID,
     ByoKey,
     ClientRecord,
-    Decision,
     User,
 )
 
@@ -103,43 +100,7 @@ def _reset(monkeypatch):
     _wipe_rate_limit_buckets()
     yield
     _wipe_rate_limit_buckets()
-    _wipe_test_artifacts()
     get_settings.cache_clear()
-
-
-def _wipe_test_artifacts() -> None:
-    raw = sqlite3.connect(engine.url.database)
-    try:
-        from tests.conftest import (
-            _restore_audit_delete_guards,
-            _suspend_audit_delete_guards,
-        )
-        _suspend_audit_delete_guards(raw)
-        user_ids = [
-            r[0]
-            for r in raw.execute("SELECT id FROM users WHERE email LIKE 'test+phasee-%'")
-        ]
-        if user_ids:
-            ph = ",".join("?" * len(user_ids))
-            raw.execute(f"DELETE FROM byo_keys WHERE user_id IN ({ph})", user_ids)
-            raw.execute(f"DELETE FROM refresh_tokens WHERE user_id IN ({ph})", user_ids)
-            raw.execute(f"DELETE FROM security_events WHERE user_id IN ({ph})", user_ids)
-            raw.execute(
-                f"DELETE FROM decision_claims WHERE decision_id IN "
-                f"(SELECT id FROM decisions WHERE user_id IN ({ph}))",
-                user_ids,
-            )
-            raw.execute(
-                f"DELETE FROM retrieved_chunks WHERE decision_id IN "
-                f"(SELECT id FROM decisions WHERE user_id IN ({ph}))",
-                user_ids,
-            )
-            raw.execute(f"DELETE FROM decisions WHERE user_id IN ({ph})", user_ids)
-            raw.execute(f"DELETE FROM users WHERE id IN ({ph})", user_ids)
-        _restore_audit_delete_guards(raw)
-        raw.commit()
-    finally:
-        raw.close()
 
 
 # ---------------------------------------------------------------------------
@@ -323,19 +284,38 @@ def test_mutating_a_decision_row_breaks_audit_verify(client):
 
     # Mutate the row by bypassing the ORM hash recomputation.
     with engine.begin() as conn:
+        original_question = conn.execute(
+            text("SELECT question FROM decisions WHERE id = :id").bindparams(id=decision_id)
+        ).scalar_one()
         conn.execute(
             text(
                 "UPDATE decisions SET question = :new_q WHERE id = :id"
             ).bindparams(new_q="TAMPERED.", id=decision_id)
         )
 
-    compliance = _make_user(role="compliance")
-    verify = client.get("/audit/verify", headers=_bearer(compliance))
-    assert verify.status_code == 200, verify.text
-    body = verify.json()
-    assert body["ok"] is False
-    assert body["first_break_decision_id"] == decision_id
-    assert "mutated" in body["first_break_reason"].lower()
+    try:
+        compliance = _make_user(role="compliance")
+        verify = client.get("/audit/verify", headers=_bearer(compliance))
+        assert verify.status_code == 200, verify.text
+        body = verify.json()
+        assert body["ok"] is False
+        assert body["first_break_decision_id"] == decision_id
+        assert "mutated" in body["first_break_reason"].lower()
+
+        # A restart must not "heal" the tampered row: the boot-time backfill
+        # only links unhashed rows and never rewrites an existing hash.
+        init_db()
+        after_boot = client.get("/audit/verify", headers=_bearer(compliance)).json()
+        assert after_boot["ok"] is False
+        assert after_boot["first_break_decision_id"] == decision_id
+    finally:
+        # Put the original content back so later tests see an intact chain.
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE decisions SET question = :q WHERE id = :id"
+                ).bindparams(q=original_question, id=decision_id)
+            )
 
 
 def test_hash_chain_per_tenant_independent():
@@ -353,7 +333,7 @@ def test_hash_chain_per_tenant_independent():
         other_id = t.id
 
     from app.core.provenance import record_decision
-    from app.core.types import ParsedClaim, RetrievedChunk as ChunkData
+    from app.core.types import ParsedClaim
 
     with SessionLocal() as db:
         for tid in (DEMO_TENANT_ID, other_id):
@@ -375,22 +355,83 @@ def test_hash_chain_per_tenant_independent():
         assert verify_chain(db, tenant_id=DEMO_TENANT_ID).ok
         assert verify_chain(db, tenant_id=other_id).ok
 
-    # Cleanup the synthetic tenant.
-    raw = sqlite3.connect(engine.url.database)
-    try:
-        from tests.conftest import (
-            _restore_audit_delete_guards,
-            _suspend_audit_delete_guards,
+
+def test_concurrent_appends_in_one_tenant_keep_a_single_chain():
+    """Decisions recorded at the same moment in one tenant link one after
+    another. Without the chain lock they fork from the same tail and
+    /audit/verify reports a break that is not tampering."""
+    import threading
+
+    from app.core.provenance import record_decision
+    from tests.conftest import make_tenant
+
+    tenant_id = make_tenant()
+    workers, per_worker = 6, 3
+    start = threading.Barrier(workers)
+    errors: list[BaseException] = []
+
+    def append(worker: int) -> None:
+        try:
+            start.wait()
+            for n in range(per_worker):
+                with SessionLocal() as db:
+                    record_decision(
+                        db,
+                        question=f"concurrent {worker}.{n}",
+                        client_id=None,
+                        outcome="answered",
+                        final_answer="ok",
+                        retrieved_chunks=[],
+                        kept_claims=[],
+                        dropped_claims=[],
+                        llm_model="local:test",
+                        latency_ms=1,
+                        tenant_id=tenant_id,
+                    )
+        except BaseException as exc:  # noqa: BLE001 — re-raised in the test thread
+            errors.append(exc)
+
+    threads = [threading.Thread(target=append, args=(w,)) for w in range(workers)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert errors == []
+    with SessionLocal() as db:
+        report = verify_chain(db, tenant_id=tenant_id)
+    assert report.total == workers * per_worker
+    assert report.ok, report.first_break_reason
+
+
+def test_row_hash_does_not_depend_on_the_session_time_zone():
+    """Postgres returns timestamptz in the session's TimeZone and SQLite
+    returns naive UTC; all of them must hash the same instant the same way."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.security.audit_hash import canonical_decision_payload
+    from app.models_db import Decision
+
+    instant = datetime(2026, 10, 2, 12, 0, 0, 123456, tzinfo=timezone.utc)
+    stamps = (
+        instant,
+        instant.astimezone(timezone(timedelta(hours=2))),
+        instant.replace(tzinfo=None),
+    )
+    payloads = {
+        canonical_decision_payload(
+            Decision(
+                id="d1",
+                tenant_id="t1",
+                created_at=stamp,
+                question="q",
+                outcome="answered",
+                llm_model="m",
+                latency_ms=1,
+            )
         )
-        _suspend_audit_delete_guards(raw)
-        raw.execute("DELETE FROM decision_claims WHERE tenant_id = ?", (other_id,))
-        raw.execute("DELETE FROM retrieved_chunks WHERE tenant_id = ?", (other_id,))
-        raw.execute("DELETE FROM decisions WHERE tenant_id = ?", (other_id,))
-        raw.execute("DELETE FROM tenants WHERE id = ?", (other_id,))
-        _restore_audit_delete_guards(raw)
-        raw.commit()
-    finally:
-        raw.close()
+        for stamp in stamps
+    }
+    assert len(payloads) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -398,18 +439,62 @@ def test_hash_chain_per_tenant_independent():
 # ---------------------------------------------------------------------------
 
 
+def _record_guarded_decision() -> None:
+    """Write one decision with a claim and a chunk through the normal hash
+    chain path, so the row-level guards have rows to fire on."""
+    from app.core.provenance import record_decision
+    from app.core.types import ParsedClaim, RetrievedChunk as ChunkData
+
+    with SessionLocal() as db:
+        record_decision(
+            db,
+            question="delete guard probe",
+            client_id=None,
+            outcome="answered",
+            final_answer="ok",
+            retrieved_chunks=[
+                ChunkData(
+                    source_id="REG-SUITABILITY",
+                    source_type="regulation",
+                    chunk_text="probe chunk",
+                    score=1.0,
+                )
+            ],
+            kept_claims=[ParsedClaim(claim_text="probe", cited_source_id=None, source_text=None)],
+            dropped_claims=[],
+            llm_model="local:test",
+            latency_ms=1,
+            tenant_id=DEMO_TENANT_ID,
+        )
+
+
 @pytest.mark.parametrize(
     "table", ["decisions", "decision_claims", "retrieved_chunks"]
 )
 def test_db_level_delete_blocked_on_audit_tables(table):
     init_db()
-    raw = sqlite3.connect(engine.url.database)
-    try:
-        with pytest.raises(sqlite3.IntegrityError) as exc:
-            raw.execute(f"DELETE FROM {table} WHERE 1=1")
-        assert "audit row deletion blocked" in str(exc.value)
-    finally:
-        raw.close()
+    _record_guarded_decision()
+    with engine.connect() as conn:
+        with pytest.raises(DBAPIError) as exc:
+            conn.execute(text(f"DELETE FROM {table}"))
+        conn.rollback()
+    assert "audit row deletion blocked" in str(exc.value)
+
+
+@pytest.mark.skipif(
+    engine.dialect.name != "postgresql",
+    reason="TRUNCATE guards exist only on Postgres; SQLite has no TRUNCATE",
+)
+@pytest.mark.parametrize(
+    "table", ["decisions", "decision_claims", "retrieved_chunks"]
+)
+def test_db_level_truncate_blocked_on_audit_tables(table):
+    init_db()
+    with engine.connect() as conn:
+        with pytest.raises(DBAPIError) as exc:
+            conn.execute(text(f"TRUNCATE {table} CASCADE"))
+        conn.rollback()
+    assert "audit row deletion blocked" in str(exc.value)
 
 
 # ---------------------------------------------------------------------------
@@ -431,11 +516,77 @@ def test_encrypt_with_aad_rejects_wrong_aad():
         decrypt(blob.ciphertext_b64, aad=b"user:eve")
 
 
+def test_rotated_key_still_decrypts_through_previous_keys(monkeypatch):
+    from app.core.security.encryption import EncryptionError
+
+    monkeypatch.setenv("APP_ENCRYPTION_KEY", "first-key-material-for-rotation")
+    monkeypatch.setenv("APP_ENCRYPTION_KID", "k1")
+    get_settings.cache_clear()
+    blob = encrypt("payload")
+    assert blob.kid == "k1"
+
+    # Production mode: no dev-key fallback, so only listed keys can open it.
+    monkeypatch.setenv("GLASSBOX_PRODUCTION_MODE", "1")
+    monkeypatch.setenv("APP_ENCRYPTION_KEY", "second-key-material-for-rotation")
+    monkeypatch.setenv("APP_ENCRYPTION_KID", "k2")
+    get_settings.cache_clear()
+    with pytest.raises(EncryptionError):
+        decrypt(blob.ciphertext_b64, kid="k1")
+
+    monkeypatch.setenv("APP_ENCRYPTION_PREVIOUS_KEYS", "k1:first-key-material-for-rotation")
+    get_settings.cache_clear()
+    assert decrypt(blob.ciphertext_b64, kid="k1") == "payload"
+
+
+def test_mfa_secret_is_encrypted_at_rest_and_bound_to_its_user():
+    from app.core.auth import mfa as mfa_mod
+
+    blob = mfa_mod.pack_secret("JBSWY3DPEHPK3PXP", ["hash-1"], user_id="user-a")
+    assert blob.startswith("enc:v1:")
+    assert "JBSWY3DPEHPK3PXP" not in blob
+    assert mfa_mod.unpack_secret(blob, user_id="user-a") == ("JBSWY3DPEHPK3PXP", ["hash-1"])
+    # Copied onto another user's row, the ciphertext does not open.
+    assert mfa_mod.unpack_secret(blob, user_id="user-b") == (None, [])
+
+
+def test_mfa_secret_written_before_encryption_still_reads():
+    import json
+
+    from app.core.auth import mfa as mfa_mod
+
+    legacy = json.dumps({"secret": "JBSWY3DPEHPK3PXP", "recovery": ["hash-1"]})
+    assert mfa_mod.unpack_secret(legacy, user_id="u") == ("JBSWY3DPEHPK3PXP", ["hash-1"])
+    assert mfa_mod.unpack_secret("JBSWY3DPEHPK3PXP", user_id="u") == ("JBSWY3DPEHPK3PXP", [])
+
+
+def test_encrypt_mfa_secrets_script_converts_plaintext_rows(capsys):
+    import json
+
+    from app.core.auth import mfa as mfa_mod
+    from scripts.encrypt_mfa_secrets import main as encrypt_mfa_secrets
+
+    user = _make_user(role="advisor")
+    with SessionLocal() as db:
+        row = db.get(User, user.id)
+        row.mfa_secret = json.dumps({"secret": "JBSWY3DPEHPK3PXP", "recovery": []})
+        db.commit()
+
+    assert encrypt_mfa_secrets([]) == 0
+    with SessionLocal() as db:
+        stored = db.get(User, user.id).mfa_secret
+    assert mfa_mod.is_encrypted(stored)
+    assert mfa_mod.unpack_secret(stored, user_id=user.id)[0] == "JBSWY3DPEHPK3PXP"
+
+    # Already-encrypted rows are left alone on a second run.
+    assert encrypt_mfa_secrets([]) == 0
+    assert "Encrypted 0 MFA secret(s)" in capsys.readouterr().out
+
+
 def test_byo_key_endpoint_round_trip_never_returns_plaintext(client, no_auth_override):
     """no_auth_override so the JWT we mint actually drives current_user.
     Without it, the conftest default-admin override binds the BYO key to
     the persistent demo-admin row instead of our Phase E test user."""
-    user = _make_user(role="advisor")
+    user = _make_user(role="admin")
     headers = _bearer(user)
 
     plaintext = "sk-or-test-redacted-1234567890"
@@ -493,6 +644,43 @@ def test_byo_key_upsert_overwrites_existing(client):
     rows = [r for r in listing if r["provider"] == "openrouter"]
     assert len(rows) == 1
     assert rows[0]["last4"] == "2222"
+
+
+def test_byo_keys_are_admin_only_unless_policy_allows_advisors(
+    client, no_auth_override, monkeypatch
+):
+    advisor = _make_user(role="advisor")
+    payload = {"provider": "openrouter", "api_key": "sk-or-advisor-key-1234"}
+    denied = client.post("/users/me/byo-keys", headers=_bearer(advisor), json=payload)
+    assert denied.status_code == 403
+
+    monkeypatch.setenv("ALLOW_ADVISOR_BYO_KEYS", "1")
+    get_settings.cache_clear()
+    allowed = client.post("/users/me/byo-keys", headers=_bearer(advisor), json=payload)
+    assert allowed.status_code == 201, allowed.text
+
+
+def test_admin_system_reports_the_live_configuration(client, no_auth_override, monkeypatch):
+    monkeypatch.setenv("ALLOW_ADVISOR_BYO_KEYS", "1")
+    monkeypatch.setenv("VERIFY_MODE", "heuristic")
+    get_settings.cache_clear()
+    admin = _make_user(role="admin")
+
+    res = client.get("/admin/system", headers=_bearer(admin))
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["environment"] == "development"
+    assert body["database"] == engine.dialect.name
+    assert body["rate_limits"]["ask_per_min"] == get_settings().rate_limit_ask_per_min
+    guardrails = {item["key"]: item for item in body["guardrails"]}
+    assert guardrails["advisor_byo_keys"]["enabled"] is True
+    assert guardrails["claim_verification"]["detail"] == "mode: heuristic"
+    assert body["embedding_backend"] == "hash"
+
+
+def test_admin_system_is_admin_only(client, no_auth_override):
+    advisor = _make_user(role="advisor")
+    assert client.get("/admin/system", headers=_bearer(advisor)).status_code == 403
 
 
 # ---------------------------------------------------------------------------

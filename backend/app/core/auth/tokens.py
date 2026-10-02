@@ -39,6 +39,16 @@ class MFAChallengeClaims:
     kid: str
 
 
+@dataclass(frozen=True)
+class BootstrapClaims:
+    sub: str  # newly-created user_id awaiting MFA verification
+    tid: str  # tenant_id
+    jti: str
+    exp: int
+    iat: int
+    kid: str
+
+
 class InvalidTokenError(Exception):
     """Raised when a JWT fails signature, expiry, or shape validation."""
 
@@ -130,6 +140,59 @@ def decode_mfa_challenge_token(token: str) -> MFAChallengeClaims:
         if payload.get("typ") != "mfa":
             raise InvalidTokenError("wrong token type")
         return MFAChallengeClaims(
+            sub=payload["sub"],
+            tid=payload["tid"],
+            jti=payload["jti"],
+            iat=int(payload["iat"]),
+            exp=int(payload["exp"]),
+            kid=header["kid"],
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise InvalidTokenError(f"malformed claims: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# Bootstrap challenge token (first-admin MFA enrolment hand-off)
+# ---------------------------------------------------------------------------
+
+
+def issue_bootstrap_token(*, user_id: str, tenant_id: str) -> str:
+    settings = get_settings()
+    now = datetime.now(timezone.utc)
+    exp = now + timedelta(minutes=10)
+    payload = {
+        "typ": "bootstrap",
+        "sub": user_id,
+        "tid": tenant_id,
+        "jti": str(uuid4()),
+        "iat": int(now.timestamp()),
+        "exp": int(exp.timestamp()),
+    }
+    return jwt.encode(
+        payload,
+        settings.jwt_signing_key,
+        algorithm="HS256",
+        headers={"kid": settings.jwt_active_kid},
+    )
+
+
+def decode_bootstrap_token(token: str) -> BootstrapClaims:
+    settings = get_settings()
+    try:
+        header = jwt.get_unverified_header(token)
+        if "kid" not in header:
+            raise InvalidTokenError("missing kid")
+        payload = jwt.decode(
+            token,
+            settings.jwt_signing_key,
+            algorithms=["HS256"],
+        )
+    except jwt.PyJWTError as exc:
+        raise InvalidTokenError(str(exc)) from exc
+    try:
+        if payload.get("typ") != "bootstrap":
+            raise InvalidTokenError("wrong token type")
+        return BootstrapClaims(
             sub=payload["sub"],
             tid=payload["tid"],
             jti=payload["jti"],

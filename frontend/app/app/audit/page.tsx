@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowUpRight,
   ChevronDown,
@@ -17,96 +18,194 @@ import { OutcomeBadge } from "@/components/OutcomeBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getAuditSummaries, type AuditSummary } from "@/lib/api";
+import {
+  downloadAuditExport,
+  searchAudit,
+  type AuditQuery,
+  type AuditSummary,
+} from "@/lib/api";
+import { hasAtLeastRole, useAuth } from "@/lib/auth-context";
 import { useClients } from "@/lib/clients-hooks";
-import { classify, type OutcomeKind } from "@/lib/outcomes";
+
+const PAGE_SIZE = 50;
 
 type DateRange = "24h" | "7d" | "30d" | "all";
-const RANGES: Array<{ id: DateRange; label: string }> = [
-  { id: "24h", label: "24h" },
-  { id: "7d", label: "7d" },
-  { id: "30d", label: "30d" },
-  { id: "all", label: "All" },
+const RANGES: Array<{ id: DateRange; label: string; days: number | null }> = [
+  { id: "24h", label: "24h", days: 1 },
+  { id: "7d", label: "7d", days: 7 },
+  { id: "30d", label: "30d", days: 30 },
+  { id: "all", label: "All", days: null },
 ];
 
-function inRange(createdAt: string, range: DateRange): boolean {
-  if (range === "all") return true;
-  const now = Date.now();
-  const days = range === "24h" ? 1 : range === "7d" ? 7 : 30;
-  return new Date(createdAt).getTime() >= now - days * 24 * 3600_000;
+type Outcome = NonNullable<AuditQuery["outcome"]>;
+const OUTCOMES: Array<{ id: Outcome | "all"; label: string }> = [
+  { id: "all", label: "All" },
+  { id: "answered", label: "Grounded" },
+  { id: "flagged", label: "Flagged" },
+  { id: "refused", label: "Refused" },
+  { id: "fallback", label: "Fallback" },
+];
+
+type Filters = {
+  range: DateRange;
+  outcome: Outcome | "all";
+  client: string;
+  lowGrounding: boolean;
+  q: string;
+};
+
+function filtersFromParams(params: URLSearchParams): Filters {
+  const range = params.get("range");
+  const outcome = params.get("outcome");
+  return {
+    range: RANGES.some((r) => r.id === range) ? (range as DateRange) : "7d",
+    outcome: OUTCOMES.some((o) => o.id === outcome) ? (outcome as Outcome) : "all",
+    client: params.get("client") ?? "all",
+    lowGrounding: params.get("grounding") === "low",
+    q: params.get("q") ?? "",
+  };
 }
 
+function toQuery(filters: Filters): AuditQuery {
+  const days = RANGES.find((r) => r.id === filters.range)?.days ?? null;
+  return {
+    since: days === null ? undefined : new Date(Date.now() - days * 24 * 3600_000).toISOString(),
+    outcome: filters.outcome === "all" ? undefined : filters.outcome,
+    client_id: filters.client === "all" ? undefined : filters.client,
+    grounding: filters.lowGrounding ? "low" : undefined,
+    q: filters.q.trim() || undefined,
+  };
+}
+
+type Results = {
+  /** Which filters (and refresh) these rows were fetched for. */
+  key: string;
+  query: AuditQuery;
+  rows: AuditSummary[];
+  total: number;
+  error: string | null;
+};
+
 export default function AuditLogPage() {
+  return (
+    <Suspense fallback={<AuditLogSkeleton />}>
+      <AuditLog />
+    </Suspense>
+  );
+}
+
+function AuditLog() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const filters = useMemo(() => filtersFromParams(searchParams), [searchParams]);
   const { clients } = useClients();
+  const { role } = useAuth();
+  const canExport = hasAtLeastRole(role, "compliance");
   const getClient = (id: string | null | undefined) =>
     id ? clients.find((c) => c.id === id) : undefined;
-  const [audits, setAudits] = useState<AuditSummary[] | null>(null);
-  const [outcome, setOutcome] = useState<OutcomeKind | "all">("all");
-  const [client, setClient] = useState<string>("all");
-  const [range, setRange] = useState<DateRange>("7d");
-  const [query, setQuery] = useState("");
-  const [bump, setBump] = useState(0);
+
+  const [results, setResults] = useState<Results | null>(null);
+  const [refreshCount, setRefreshCount] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [exporting, setExporting] = useState<"csv" | "pdf" | null>(null);
+  const [search, setSearch] = useState(filters.q);
+  // The last q this page wrote to the URL. Any other change came from
+  // outside (e.g. the global search) and replaces what's in the box.
+  const [pushedQuery, setPushedQuery] = useState(filters.q);
+  const [seenQuery, setSeenQuery] = useState(filters.q);
+  if (filters.q !== seenQuery) {
+    setSeenQuery(filters.q);
+    if (filters.q !== pushedQuery) setSearch(filters.q);
+  }
+
+  // Results remember which filters (and refresh) they were fetched for, so
+  // "loading" is simply "the results on screen are for something else".
+  const resultsKey = `${searchParams.toString()}#${refreshCount}`;
+  const loading = results?.key !== resultsKey;
+  const rows = loading ? null : results.rows;
+  const total = loading ? 0 : results.total;
+  const error = loading ? null : results.error;
+
+  const setFilters = useCallback(
+    (patch: Partial<Filters>) => {
+      const next = { ...filters, ...patch };
+      const params = new URLSearchParams();
+      if (next.range !== "7d") params.set("range", next.range);
+      if (next.outcome !== "all") params.set("outcome", next.outcome);
+      if (next.client !== "all") params.set("client", next.client);
+      if (next.lowGrounding) params.set("grounding", "low");
+      if (next.q.trim()) params.set("q", next.q.trim());
+      setPushedQuery(next.q.trim());
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [filters, pathname, router],
+  );
 
   useEffect(() => {
     let active = true;
-    getAuditSummaries(200)
-      .then((rows) => {
-        if (active) setAudits(rows);
-      })
-      .catch(() => {
-        if (active) setAudits([]);
-      });
+    // "since" is relative to now, so the query is fixed at fetch time and
+    // kept with the results for "Load more" and exports.
+    const query = toQuery(filters);
+    searchAudit(query, { limit: PAGE_SIZE, offset: 0 }).then(
+      (page) =>
+        active &&
+        setResults({ key: resultsKey, query, rows: page.rows, total: page.total, error: null }),
+      (err) =>
+        active &&
+        setResults({
+          key: resultsKey,
+          query,
+          rows: [],
+          total: 0,
+          error: err instanceof Error ? err.message : "Could not load the audit log",
+        }),
+    );
     return () => {
       active = false;
     };
-  }, [bump]);
+  }, [filters, resultsKey]);
 
-  const rows = useMemo(() => {
-    if (!audits) return null;
-    const needle = query.trim().toLowerCase();
-    return audits.filter((a) => {
-      if (!inRange(a.created_at, range)) return false;
-      if (outcome !== "all" && classify(a) !== outcome) return false;
-      if (client !== "all" && a.client_id !== client) return false;
-      if (needle) {
-        return (
-          a.question.toLowerCase().includes(needle) ||
-          a.id.toLowerCase().includes(needle)
-        );
-      }
-      return true;
-    });
-  }, [audits, outcome, client, range, query]);
+  // Debounce the search box into the URL.
+  useEffect(() => {
+    if (search === filters.q) return;
+    const t = window.setTimeout(() => setFilters({ q: search }), 300);
+    return () => window.clearTimeout(t);
+  }, [search, filters.q, setFilters]);
 
-  function exportCsv() {
-    if (!rows) return;
-    const header = ["id", "created_at", "client_id", "outcome", "question", "grounding", "determinism", "latency_ms"];
-    const lines = [header.join(",")].concat(
-      rows.map((r) => [
-        r.id,
-        r.created_at,
-        r.client_id ?? "",
-        r.outcome,
-        `"${r.question.replace(/"/g, '""')}"`,
-        r.grounding_score ?? "",
-        r.determinism_score ?? "",
-        r.latency_ms,
-      ].join(",")),
-    );
-    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `glassbox-audit-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success(`Exported ${rows.length} rows`);
+  async function loadMore() {
+    if (!results) return;
+    setLoadingMore(true);
+    try {
+      const page = await searchAudit(results.query, {
+        limit: PAGE_SIZE,
+        offset: results.rows.length,
+      });
+      setResults({ ...results, rows: [...results.rows, ...page.rows], total: page.total });
+    } catch (err) {
+      toast.error("Could not load more decisions", {
+        description: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setLoadingMore(false);
+    }
   }
 
-  function exportPdfBinder() {
-    toast("Audit binder queued", {
-      description: `${rows?.length ?? 0} decisions · regulator-ready PDF will be emailed in 2 min.`,
-    });
+  async function exportAs(format: "csv" | "pdf") {
+    setExporting(format);
+    try {
+      const filename = await downloadAuditExport(format, results?.query ?? toQuery(filters));
+      toast.success(`Downloaded ${filename}`, {
+        description: `${total} decision${total === 1 ? "" : "s"} · this export is recorded in the security log.`,
+      });
+    } catch (err) {
+      toast.error("Export failed", {
+        description: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setExporting(null);
+    }
   }
 
   return (
@@ -120,23 +219,32 @@ export default function AuditLogPage() {
             <Button
               variant="outline"
               className="h-9 gap-1.5 rounded-md text-xs"
-              onClick={() => setBump((b) => b + 1)}
+              onClick={() => setRefreshCount((n) => n + 1)}
             >
               <RefreshCw className="h-3.5 w-3.5" />
               Refresh
             </Button>
-            <Button
-              variant="outline"
-              className="h-9 gap-1.5 rounded-md text-xs"
-              onClick={exportCsv}
-            >
-              <Download className="h-3.5 w-3.5" />
-              CSV
-            </Button>
-            <Button onClick={exportPdfBinder} className="h-9 gap-1.5 rounded-md text-xs">
-              <FileBadge2 className="h-3.5 w-3.5" />
-              PDF binder
-            </Button>
+            {canExport ? (
+              <>
+                <Button
+                  variant="outline"
+                  className="h-9 gap-1.5 rounded-md text-xs"
+                  disabled={exporting !== null || total === 0}
+                  onClick={() => void exportAs("csv")}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  {exporting === "csv" ? "Exporting…" : "CSV"}
+                </Button>
+                <Button
+                  className="h-9 gap-1.5 rounded-md text-xs"
+                  disabled={exporting !== null || total === 0}
+                  onClick={() => void exportAs("pdf")}
+                >
+                  <FileBadge2 className="h-3.5 w-3.5" />
+                  {exporting === "pdf" ? "Building binder…" : "PDF binder"}
+                </Button>
+              </>
+            ) : null}
           </div>
         }
       />
@@ -147,9 +255,9 @@ export default function AuditLogPage() {
             <Button
               key={r.id}
               type="button"
-              variant={range === r.id ? "secondary" : "outline"}
+              variant={filters.range === r.id ? "secondary" : "outline"}
               className="h-8 rounded-md text-xs"
-              onClick={() => setRange(r.id)}
+              onClick={() => setFilters({ range: r.id })}
             >
               {r.label}
             </Button>
@@ -157,23 +265,33 @@ export default function AuditLogPage() {
         </div>
 
         <div className="ml-2 flex items-center gap-1">
-          {(["all", "answered", "flagged", "refused", "fallback"] as const).map((o) => (
+          {OUTCOMES.map((o) => (
             <Button
-              key={o}
+              key={o.id}
               type="button"
-              variant={outcome === o ? "secondary" : "outline"}
-              className="h-8 rounded-md text-xs capitalize"
-              onClick={() => setOutcome(o as OutcomeKind | "all")}
+              variant={filters.outcome === o.id ? "secondary" : "outline"}
+              className="h-8 rounded-md text-xs"
+              onClick={() => setFilters({ outcome: o.id })}
             >
-              {o === "answered" ? "Grounded" : o}
+              {o.label}
             </Button>
           ))}
+          <Button
+            type="button"
+            variant={filters.lowGrounding ? "secondary" : "outline"}
+            className="h-8 rounded-md text-xs"
+            aria-pressed={filters.lowGrounding}
+            onClick={() => setFilters({ lowGrounding: !filters.lowGrounding })}
+          >
+            Grounding &lt; 60%
+          </Button>
         </div>
 
         <div className="relative">
           <select
-            value={client}
-            onChange={(e) => setClient(e.target.value)}
+            value={filters.client}
+            onChange={(e) => setFilters({ client: e.target.value })}
+            aria-label="Client"
             className="h-8 appearance-none rounded-md border bg-card px-2.5 pr-7 text-xs"
           >
             <option value="all">All clients</option>
@@ -188,14 +306,21 @@ export default function AuditLogPage() {
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
               placeholder="Search question, decision ID"
+              aria-label="Search the audit log"
               className="h-8 pl-8 text-xs"
             />
           </div>
         </div>
       </div>
+
+      {error ? (
+        <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+          {error}
+        </div>
+      ) : null}
 
       <div className="overflow-hidden rounded-lg border bg-card">
         <div className="grid grid-cols-[120px_minmax(0,2.2fr)_120px_110px_100px_100px_70px] gap-px border-b bg-border text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
@@ -216,7 +341,7 @@ export default function AuditLogPage() {
           </div>
         ) : rows.length === 0 ? (
           <div className="py-14 text-center text-sm text-muted-foreground">
-            No decisions match your filters.
+            No decisions match. Loosen the filters, or try a wider date range.
           </div>
         ) : (
           <ul>
@@ -262,6 +387,7 @@ export default function AuditLogPage() {
                   </div>
                   <Link
                     href={`/app/audit/${row.id}`}
+                    aria-label={`Open decision ${row.id.slice(0, 8)}`}
                     className="flex items-center justify-end px-3 py-2 text-muted-foreground hover:text-foreground"
                   >
                     <ArrowUpRight className="h-3.5 w-3.5" />
@@ -275,10 +401,30 @@ export default function AuditLogPage() {
 
       <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
         <span>
-          {rows ? `${rows.length} decision${rows.length === 1 ? "" : "s"}` : "Loading…"}
+          {rows === null
+            ? "Loading…"
+            : `Showing ${rows.length} of ${total} decision${total === 1 ? "" : "s"}`}
         </span>
-        <span>Live · refresh every 15s</span>
+        {rows && rows.length < total ? (
+          <Button
+            variant="outline"
+            className="h-8 rounded-md text-xs"
+            disabled={loadingMore}
+            onClick={() => void loadMore()}
+          >
+            {loadingMore ? "Loading…" : `Load ${Math.min(PAGE_SIZE, total - rows.length)} more`}
+          </Button>
+        ) : null}
       </div>
+    </PageContainer>
+  );
+}
+
+function AuditLogSkeleton() {
+  return (
+    <PageContainer size="wide">
+      <Skeleton className="mb-4 h-16 w-full rounded-lg" />
+      <Skeleton className="h-96 w-full rounded-lg" />
     </PageContainer>
   );
 }
