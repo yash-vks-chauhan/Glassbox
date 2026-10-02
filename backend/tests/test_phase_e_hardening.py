@@ -356,6 +356,84 @@ def test_hash_chain_per_tenant_independent():
         assert verify_chain(db, tenant_id=other_id).ok
 
 
+def test_concurrent_appends_in_one_tenant_keep_a_single_chain():
+    """Decisions recorded at the same moment in one tenant link one after
+    another. Without the chain lock they fork from the same tail and
+    /audit/verify reports a break that is not tampering."""
+    import threading
+
+    from app.core.provenance import record_decision
+    from tests.conftest import make_tenant
+
+    tenant_id = make_tenant()
+    workers, per_worker = 6, 3
+    start = threading.Barrier(workers)
+    errors: list[BaseException] = []
+
+    def append(worker: int) -> None:
+        try:
+            start.wait()
+            for n in range(per_worker):
+                with SessionLocal() as db:
+                    record_decision(
+                        db,
+                        question=f"concurrent {worker}.{n}",
+                        client_id=None,
+                        outcome="answered",
+                        final_answer="ok",
+                        retrieved_chunks=[],
+                        kept_claims=[],
+                        dropped_claims=[],
+                        llm_model="local:test",
+                        latency_ms=1,
+                        tenant_id=tenant_id,
+                    )
+        except BaseException as exc:  # noqa: BLE001 — re-raised in the test thread
+            errors.append(exc)
+
+    threads = [threading.Thread(target=append, args=(w,)) for w in range(workers)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert errors == []
+    with SessionLocal() as db:
+        report = verify_chain(db, tenant_id=tenant_id)
+    assert report.total == workers * per_worker
+    assert report.ok, report.first_break_reason
+
+
+def test_row_hash_does_not_depend_on_the_session_time_zone():
+    """Postgres returns timestamptz in the session's TimeZone and SQLite
+    returns naive UTC; all of them must hash the same instant the same way."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.security.audit_hash import canonical_decision_payload
+    from app.models_db import Decision
+
+    instant = datetime(2026, 10, 2, 12, 0, 0, 123456, tzinfo=timezone.utc)
+    stamps = (
+        instant,
+        instant.astimezone(timezone(timedelta(hours=2))),
+        instant.replace(tzinfo=None),
+    )
+    payloads = {
+        canonical_decision_payload(
+            Decision(
+                id="d1",
+                tenant_id="t1",
+                created_at=stamp,
+                question="q",
+                outcome="answered",
+                llm_model="m",
+                latency_ms=1,
+            )
+        )
+        for stamp in stamps
+    }
+    assert len(payloads) == 1
+
+
 # ---------------------------------------------------------------------------
 # 5. DELETE refused at DB level on audit tables
 # ---------------------------------------------------------------------------

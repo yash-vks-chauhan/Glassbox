@@ -30,10 +30,10 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Iterable
 
-from sqlalchemy import select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from app.models_db import Decision, DecisionClaim, RetrievedChunk
@@ -87,7 +87,9 @@ def _iso(value: datetime | None) -> str | None:
     if value.tzinfo is None:
         # Normalise SQLite's naive datetimes so the canonical form is stable.
         return value.replace(microsecond=value.microsecond).isoformat() + "+00:00"
-    return value.isoformat()
+    # Postgres returns timestamptz in the session's time zone; hash the UTC
+    # instant so a different TimeZone setting can't change the hash.
+    return value.astimezone(timezone.utc).isoformat()
 
 
 def _scalar(value: object) -> object:
@@ -133,6 +135,36 @@ def compute_row_hash(prev_hash: str | None, canonical_json: str) -> str:
     h.update(b"\x1f")  # ASCII Unit Separator — unambiguous prev/canonical split
     h.update(canonical_json.encode("utf-8"))
     return h.hexdigest()
+
+
+def lock_tenant_chain(db: Session, *, tenant_id: str) -> None:
+    """Hold the tenant's chain until this transaction ends, so concurrent
+    appends link one after another instead of forking from the same tail
+    (which ``verify_chain`` would report as a break).
+
+    Postgres: a transaction-scoped advisory lock keyed on the tenant.
+    SQLite allows one writer at a time, and the decision INSERT takes that
+    lock before the tail is read, so appends there are already serialised.
+    """
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(
+            text("SELECT pg_advisory_xact_lock(:key)"), {"key": _chain_lock_key(tenant_id)}
+        )
+
+
+def _chain_lock_key(tenant_id: str) -> int:
+    digest = hashlib.sha256(f"glassbox:audit-chain:{tenant_id}".encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big", signed=True)  # advisory keys are bigint
+
+
+def chain_timestamp(db: Session) -> datetime:
+    """The ``created_at`` for a row being appended, read while the chain is
+    locked. ``verify_chain`` walks rows in ``created_at`` order, so stamps
+    must follow append order: on Postgres they come from the database
+    clock, which every app server shares."""
+    if db.get_bind().dialect.name == "postgresql":
+        return db.scalar(select(func.clock_timestamp()))
+    return datetime.now(timezone.utc)
 
 
 def latest_tail_hash(db: Session, *, tenant_id: str) -> str | None:

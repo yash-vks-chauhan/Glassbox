@@ -4,8 +4,10 @@ from sqlalchemy.orm import Session
 
 from app.core.security.audit_hash import (
     canonical_decision_payload,
+    chain_timestamp,
     compute_row_hash,
     latest_tail_hash,
+    lock_tenant_chain,
 )
 from app.core.types import ParsedClaim, RetrievedChunk
 from app.models_db import (
@@ -36,6 +38,9 @@ def record_decision(
     retrieval_question: str | None = None,
     refusal_reason: str | None = None,
 ) -> str:
+    # Held until the commit below, so a concurrent decision in this tenant
+    # links after this one instead of forking the chain.
+    lock_tenant_chain(db, tenant_id=tenant_id)
     decision = Decision(
         tenant_id=tenant_id,
         user_id=user_id,
@@ -96,15 +101,16 @@ def record_decision(
         db.add(row)
         claim_rows.append(row)
 
-    # Phase E — link this row into the tenant's hash chain *before* the
-    # commit so prev_hash / row_hash land in the same transaction as the
-    # decision content. Reading the tail with the same session sees uncommitted
-    # work from this transaction too, but every other tenant's chain is
-    # invisible to us so concurrent inserts on a different tenant don't race.
+    # Link this row into the tenant's hash chain before the commit, so
+    # prev_hash / row_hash land in the same transaction as the content. The
+    # chain lock taken above makes the tail read here the true tail.
     # Genesis rows store ``""`` (not NULL) so verify_chain can distinguish
     # "head of chain" from "legacy pre-Phase-E row".
     db.flush()
     decision.prev_hash = latest_tail_hash(db, tenant_id=tenant_id) or ""
+    # Stamped under the chain lock, so created_at order (which verify_chain
+    # walks) is append order.
+    decision.created_at = chain_timestamp(db)
     canonical = canonical_decision_payload(decision, claim_rows, chunk_rows)
     decision.row_hash = compute_row_hash(decision.prev_hash, canonical)
 
