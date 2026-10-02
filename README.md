@@ -114,6 +114,7 @@ that step needs an AWS account.
 | [docs/threat-model.md](docs/threat-model.md) | STRIDE threats per surface, each mapped to code and a test |
 | [docs/SECURITY-IMPLEMENTATION.md](docs/SECURITY-IMPLEMENTATION.md) | The auth and hardening plan of record |
 | [docs/PRODUCTION-LLM.md](docs/PRODUCTION-LLM.md) | Adding a hosted or self-hosted model behind the evaluation gate |
+| Runbooks and checklists in [docs/](docs/) | [Release](docs/RELEASE-CHECKLIST.md), [rollback](docs/DEPLOYMENT-ROLLBACK-RUNBOOK.md), [security operations](docs/SECURITY-OPERATIONS-CHECKLIST.md), [tenant onboarding](docs/TENANT-ONBOARDING-CHECKLIST.md), [escalations](docs/ESCALATION-RUNBOOK.md), [compliance review](docs/COMPLIANCE-REVIEW-CHECKLIST.md), [audit verification](docs/AUDIT-VERIFY-RUNBOOK.md), [model evaluation](docs/MODEL-EVAL-RUNBOOK.md), [provider failover](docs/MODEL-PROVIDER-FAILOVER.md), [BYO keys](docs/BYO-KEY-OPERATIONS.md), [advisor smoke test](docs/ADVISOR-SMOKE-TEST.md), [response rubric](docs/ADVISOR-RESPONSE-RUBRIC.md), [retrieval quality](docs/RETRIEVAL-QUALITY-CHECKLIST.md), [prompt-injection tests](docs/PROMPT-INJECTION-TEST-PLAN.md) |
 | [README-LATER.md](README-LATER.md) | What's left |
 
 <table>

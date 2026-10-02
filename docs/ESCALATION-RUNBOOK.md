@@ -15,7 +15,7 @@ Use this runbook when an advisor opens a flagged or refused GlassBox decision fo
 2. Open the decision replay and confirm the question, client, outcome, citations, and model route.
 3. Check that every material claim is supported by the cited document text.
 4. Confirm any numeric limits, such as allocation caps or liquidity floors, against the IPS.
-5. Record the Compliance decision before marking the escalation resolved.
+5. Record the decision in the review form: an assessment, a reason code, a verdict per claim and notes. "AI was correct" and "AI was wrong" resolve the escalation (the second also appends a correction); "Correct, needs supervisor sign-off" moves it to `in_review` and "Insufficient evidence" keeps it `open`, both at high priority and unassigned so someone else picks it up. The person who asked the question can't review it.
 
 ## Resolution Criteria
 
