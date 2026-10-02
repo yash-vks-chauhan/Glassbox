@@ -4,6 +4,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool, text
 
 from app.config import get_settings
+from app.core.schema_lock import schema_lock
 from app.models_db import Base
 
 config = context.config
@@ -56,7 +57,9 @@ def run_migrations_online() -> None:
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
-    with connectable.connect() as connection:
+    # The schema lock makes concurrent upgrades (several servers starting at
+    # once) run one after another; the later ones find the database at head.
+    with connectable.connect() as connection, schema_lock(connection):
         _ensure_wide_version_table(connection)
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():

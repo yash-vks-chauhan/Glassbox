@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
 from app.core.audit_guards import install_audit_guards
+from app.core.schema_lock import schema_lock
 from app.models_db import Base, ClientRecord, DEMO_TENANT_ID, Tenant
 
 
@@ -48,14 +49,18 @@ def init_db() -> None:
     Postgres deployments get their schema from ``alembic upgrade head``; the
     ``create_all`` here is a no-op for them. Local SQLite databases rely on
     ``create_all`` plus the column sync below.
+
+    On Postgres this runs under the schema lock, so servers booting at the
+    same time take turns (and wait for a migration in progress).
     """
-    Base.metadata.create_all(bind=engine)
-    if is_sqlite():
-        _sync_sqlite_schema()
-    _seed_demo_tenant_if_missing()
-    with engine.begin() as conn:
-        install_audit_guards(conn)
-    _backfill_audit_hash_chain_if_needed()
+    with engine.connect() as lock_connection, schema_lock(lock_connection):
+        Base.metadata.create_all(bind=engine)
+        if is_sqlite():
+            _sync_sqlite_schema()
+        _seed_demo_tenant_if_missing()
+        with engine.begin() as conn:
+            install_audit_guards(conn)
+        _backfill_audit_hash_chain_if_needed()
 
 
 # The demo tenant owns the sample corpus under backend/corpus/tenants/<id>/.
