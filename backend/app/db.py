@@ -50,7 +50,7 @@ def init_db() -> None:
     ``create_all`` here is a no-op for them. Local SQLite databases rely on
     ``create_all`` plus the column sync below.
 
-    On Postgres this runs under the schema lock, so servers booting at the
+    It runs under the schema lock, so servers and workers booting at the
     same time take turns (and wait for a migration in progress).
     """
     with engine.connect() as lock_connection, schema_lock(lock_connection):

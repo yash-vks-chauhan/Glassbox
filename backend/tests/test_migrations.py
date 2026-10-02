@@ -18,6 +18,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from uuid import uuid4
 
@@ -28,6 +29,7 @@ from alembic.config import Config
 from alembic.migration import MigrationContext
 from sqlalchemy import create_engine, make_url, text
 
+from app.core.schema_lock import schema_lock
 from app.db import init_db
 from app.models_db import Base, DEMO_TENANT_ID
 
@@ -183,3 +185,32 @@ def test_concurrent_boots_take_turns():
     for thread in threads:
         thread.join()
     assert errors == []
+
+
+def test_sqlite_schema_lock_holds_off_other_processes(tmp_path: Path):
+    """Two processes on one SQLite file (a CLI script next to the server,
+    or several workers) take the schema lock in turn."""
+    url = f"sqlite:///{tmp_path / 'locked.db'}"
+    holder = (
+        "import sys, time; from sqlalchemy import create_engine; "
+        "from app.core.schema_lock import schema_lock; "
+        "engine = create_engine(sys.argv[1])\n"
+        "with engine.connect() as conn, schema_lock(conn):\n"
+        "    print('locked', flush=True); time.sleep(1.0)"
+    )
+    child = subprocess.Popen(
+        [sys.executable, "-c", holder, url],
+        cwd=BACKEND_DIR,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert child.stdout.readline().strip() == "locked"
+        engine = create_engine(url)
+        started = time.monotonic()
+        with engine.connect() as conn, schema_lock(conn):
+            waited = time.monotonic() - started
+        engine.dispose()
+    finally:
+        child.wait(timeout=30)
+    assert waited >= 0.5

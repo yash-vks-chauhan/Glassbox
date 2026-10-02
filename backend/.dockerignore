@@ -3,6 +3,7 @@
 *.db
 *.db-wal
 *.db-shm
+*.schema-lock
 chroma_store/
 .env
 .env.*

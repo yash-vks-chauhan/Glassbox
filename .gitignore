@@ -36,6 +36,7 @@ frontend/next-env.d.ts
 # Reviewer-labelled training data exported from a live database
 backend/data/training/review_labels.jsonl
 
-# SQLite write-ahead log files
+# SQLite write-ahead log files, and the schema lock (app/core/schema_lock.py)
 *.db-wal
 *.db-shm
+*.schema-lock

@@ -57,7 +57,13 @@ def _existing_audit_tables(conn: Connection) -> list[str]:
 def install_sqlite_audit_guards(conn: Connection) -> None:
     for table in _existing_audit_tables(conn):
         trigger = delete_trigger_name(table)
-        # Drop + recreate so the trigger always reflects the current message.
+        existing = conn.execute(
+            text("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = :name"),
+            {"name": trigger},
+        ).scalar()
+        if existing and GUARD_MESSAGE in existing:
+            continue  # already current: no DDL, so no moment without a guard
+        # Missing, or written with an older message: (re)create it.
         conn.execute(text(f"DROP TRIGGER IF EXISTS {trigger}"))
         conn.execute(
             text(
