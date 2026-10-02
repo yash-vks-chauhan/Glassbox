@@ -71,7 +71,7 @@ optional model routes.
 | What | Command | Now |
 |---|---|---|
 | Backend, SQLite | `cd backend && ../.venv/bin/pytest` | 243 passed, 5 skipped (Postgres-only) |
-| Backend, Postgres | `GLASSBOX_TEST_DATABASE_URL=postgresql+psycopg://…/glassbox_test pytest` | 248 passed |
+| Backend, Postgres | `GLASSBOX_TEST_DATABASE_URL=postgresql+psycopg://…/glassbox_test ../.venv/bin/pytest` | 248 passed |
 | Frontend | `cd frontend && npm run lint && npm run typecheck && npm run build` | clean |
 | End to end | `cd frontend && npm run test:e2e` (against a running stack) | 10 Playwright specs |
 | Dependencies | `npm audit` in `frontend/`, `../.venv/bin/pip-audit -r requirements.txt` in `backend/` | no known vulnerabilities |
@@ -95,7 +95,7 @@ The benchmark was written alongside the engine over a synthetic corpus, so
 it shows the engine does what it was designed to do. It doesn't show how it
 would do on a real firm's documents; that needs a firm's documents and
 reviewers. Reproduce it with
-`PYTHONPATH=. python -m scripts.run_model_eval --routes local:glassbox-evidence-engine --gate full --determinism-runs 2 --no-persist`
+`PYTHONPATH=. ../.venv/bin/python -m scripts.run_model_eval --routes local:glassbox-evidence-engine --gate full --determinism-runs 2 --no-persist`
 from `backend/`.
 
 ## Deploy it
