@@ -16,10 +16,34 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.types import TypeDecorator
 
 
 class Base(DeclarativeBase):
     pass
+
+
+class UTCDateTime(TypeDecorator):
+    """``DateTime(timezone=True)`` that always reads back as aware UTC.
+
+    Postgres keeps the zone; SQLite drops it and returns naive datetimes,
+    which the API then serialised without an offset, so browsers read UTC
+    times as local ones (an advisor in Zurich saw every time two hours
+    early, and SLA countdowns were off by the same amount). Aware values
+    are stored as UTC; naive ones are taken to be UTC already."""
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is not None and value.tzinfo is not None:
+            value = value.astimezone(timezone.utc)
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None and value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value
 
 
 def new_uuid() -> str:
@@ -48,7 +72,7 @@ class Tenant(Base):
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="active")
     plan: Mapped[str] = mapped_column(String(24), nullable=False, default="standard")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow
+        UTCDateTime(), nullable=False, default=utcnow
     )
 
     users: Mapped[list["User"]] = relationship(
@@ -79,14 +103,14 @@ class User(Base):
     mfa_enrolled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     last_login_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
     )
     failed_login_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     locked_until: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow
+        UTCDateTime(), nullable=False, default=utcnow
     )
 
     tenant: Mapped[Tenant] = relationship(back_populates="users")
@@ -110,13 +134,13 @@ class UserInvitation(Base):
         String(36), ForeignKey("users.id"), nullable=True
     )
     expires_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
+        UTCDateTime(), nullable=False
     )
     accepted_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow
+        UTCDateTime(), nullable=False, default=utcnow
     )
 
 
@@ -138,13 +162,13 @@ class RefreshToken(Base):
     user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
     ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
     expires_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
+        UTCDateTime(), nullable=False
     )
     revoked_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow
+        UTCDateTime(), nullable=False, default=utcnow
     )
 
 
@@ -158,13 +182,13 @@ class PasswordReset(Base):
     )
     token_hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
     expires_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
+        UTCDateTime(), nullable=False
     )
     used_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow
+        UTCDateTime(), nullable=False, default=utcnow
     )
 
 
@@ -187,7 +211,7 @@ class ByoKey(Base):
     # the right one). Never store more — that's leakable.
     last4: Mapped[str | None] = mapped_column(String(8), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow
+        UTCDateTime(), nullable=False, default=utcnow
     )
 
 
@@ -211,7 +235,7 @@ class SecurityEvent(Base):
     user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
     metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow
+        UTCDateTime(), nullable=False, default=utcnow
     )
 
 
@@ -242,12 +266,12 @@ class ClientRecord(Base):
     excluded_regions: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     ips_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
     ips_updated_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
     )
     aum_eur: Mapped[float | None] = mapped_column(Float, nullable=True)
     advisor_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow
+        UTCDateTime(), nullable=False, default=utcnow
     )
 
     tenant: Mapped[Tenant] = relationship(back_populates="clients")
@@ -280,10 +304,10 @@ class Thread(Base):
     # open | resolved | escalated
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="open")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow
+        UTCDateTime(), nullable=False, default=utcnow
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow
+        UTCDateTime(), nullable=False, default=utcnow
     )
 
 
@@ -304,7 +328,7 @@ class Decision(Base):
         String(36), ForeignKey("users.id"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow
+        UTCDateTime(), nullable=False, default=utcnow
     )
     question: Mapped[str] = mapped_column(Text, nullable=False)
     client_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -410,7 +434,7 @@ class DecisionCorrection(Base):
     corrected_outcome: Mapped[str | None] = mapped_column(String(24), nullable=True)
     note: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow
+        UTCDateTime(), nullable=False, default=utcnow
     )
 
 
@@ -454,12 +478,12 @@ class Escalation(Base):
     priority: Mapped[str] = mapped_column(String(16), nullable=False, default="normal")
     reason: Mapped[str] = mapped_column(String(255), nullable=False)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
-    sla_due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    sla_due_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow
+        UTCDateTime(), nullable=False, default=utcnow
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow
+        UTCDateTime(), nullable=False, default=utcnow
     )
 
     decision: Mapped[Decision] = relationship(back_populates="escalations")
@@ -490,7 +514,7 @@ class EscalationEvent(Base):
     to_status: Mapped[str | None] = mapped_column(String(24), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow
+        UTCDateTime(), nullable=False, default=utcnow
     )
 
     escalation: Mapped[Escalation] = relationship(back_populates="events")
@@ -525,7 +549,7 @@ class DecisionReview(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     corrected_outcome: Mapped[str | None] = mapped_column(String(24), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow
+        UTCDateTime(), nullable=False, default=utcnow
     )
 
     claim_labels: Mapped[list["ClaimLabel"]] = relationship(
@@ -562,7 +586,7 @@ class ClaimLabel(Base):
     source_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     supported: Mapped[bool] = mapped_column(Boolean, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow
+        UTCDateTime(), nullable=False, default=utcnow
     )
 
     review: Mapped[DecisionReview] = relationship(back_populates="claim_labels")
@@ -584,7 +608,7 @@ class DeterminismSchedule(Base):
         String(36), ForeignKey("users.id"), nullable=True
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow
+        UTCDateTime(), nullable=False, default=utcnow
     )
 
 
@@ -606,10 +630,10 @@ class DeterminismRun(Base):
         String(36), ForeignKey("tenants.id"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow
+        UTCDateTime(), nullable=False, default=utcnow
     )
     completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        UTCDateTime(), nullable=True
     )
     # schedule | manual
     triggered_by: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -648,7 +672,7 @@ class RateLimitBucket(Base):
     route_class: Mapped[str] = mapped_column(String(32), nullable=False)
     hits_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow
+        UTCDateTime(), nullable=False, default=utcnow
     )
 
 
@@ -666,7 +690,7 @@ class ModelEvalRun(Base):
         String(36), ForeignKey("tenants.id"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow
+        UTCDateTime(), nullable=False, default=utcnow
     )
     provider: Mapped[str] = mapped_column(String(32), nullable=False)
     label: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -764,7 +788,7 @@ class AccessRequest(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow
+        UTCDateTime(), nullable=False, default=utcnow
     )
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     company: Mapped[str] = mapped_column(String(160), nullable=False)
