@@ -8,6 +8,10 @@ repo; nothing needs a paid model provider.
 It is written for the AWS console plus a few CLI commands. There is no
 Terraform or CDK template yet, so resource names below are suggestions.
 
+The live deployment is smaller: one EC2 server running the whole stack in
+Docker, described in [single-server/README.md](single-server/README.md).
+Move to this setup when the app needs to survive the loss of a server.
+
 ## What you end up with
 
 ```

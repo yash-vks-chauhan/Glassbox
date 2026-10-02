@@ -1,17 +1,23 @@
 # GlassBox: what's left
 
-The product runs end to end locally and in Docker, with CI on every pull
-request. What remains needs an outside account, real data, or a decision.
+The product runs end to end locally, in Docker and on AWS, with CI on
+every pull request. What remains needs real data, money, or a decision.
 
-## Needs an AWS account
+## The deployment
 
-- Deploy it: ECS Fargate, RDS PostgreSQL, an ALB and Secrets Manager, step
-  by step in [infra/aws-notes.md](infra/aws-notes.md). Then change the last
-  resume bullet in the README from "Packaged for AWS" to "Deployed on AWS".
+It runs on one server ([infra/single-server](infra/single-server/README.md)).
+Next steps, when they're worth paying for:
+
+- A domain name instead of the `sslip.io` address.
+- The managed setup in [infra/aws-notes.md](infra/aws-notes.md) (ECS
+  Fargate, RDS, an ALB) once it needs to survive the loss of a server. A
+  single instance has no redundancy; daily snapshots are the backup.
+- AWS Budgets alerts on the account, and an IAM admin user for deploying
+  instead of the root sign-in.
 - Optionally sync the corpus from S3 instead of baking it into the image, if
   documents should change without a rebuild.
-- Infrastructure as code (Terraform or CDK) once the manual deployment has
-  settled what it needs.
+- Infrastructure as code (Terraform or CDK) for what is now a set of CLI
+  commands.
 
 ## Needs a hosted or self-hosted model
 

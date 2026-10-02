@@ -1,0 +1,85 @@
+# GlassBox on one server: an HTTPS proxy, Postgres, the API and the web app.
+# deploy.sh writes the .env this file reads (from SSM Parameter Store) and
+# starts it; see README.md. Only the proxy publishes ports.
+name: glassbox
+
+services:
+  caddy:
+    image: public.ecr.aws/docker/library/caddy:2.11
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      APP_HOST: ${APP_HOST}
+      API_HOST: ${API_HOST}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - frontend
+      - backend
+
+  postgres:
+    image: public.ecr.aws/docker/library/postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: glassbox
+      POSTGRES_USER: glassbox
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U glassbox -d glassbox"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    image: ${REGISTRY}/glassbox-backend:${IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://glassbox:${POSTGRES_PASSWORD}@postgres:5432/glassbox
+      GLASSBOX_PRODUCTION_MODE: "1"
+      GLASSBOX_LOCAL_EVIDENCE_MODE: "1"
+      GLASSBOX_LOCAL_LLM: "1"
+      APPROVED_MODELS: ""
+      MODEL_CANDIDATE_ROUTES: local:glassbox-evidence-engine
+      FRONTEND_ORIGIN: https://${APP_HOST}
+      REFRESH_COOKIE_SECURE: "1"
+      # The API port isn't published; only the proxy can reach it.
+      FORWARDED_ALLOW_IPS: "*"
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY}
+      JWT_ACTIVE_KID: ${JWT_ACTIVE_KID}
+      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY}
+      APP_ENCRYPTION_KID: ${APP_ENCRYPTION_KID}
+      COOKIE_SECRET: ${COOKIE_SECRET}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-no-reply@glassbox.local}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-1}
+      BOOTSTRAP_SETUP_KEY: ${BOOTSTRAP_SETUP_KEY:-}
+      ACCESS_REQUEST_NOTIFY_EMAIL: ${ACCESS_REQUEST_NOTIFY_EMAIL:-}
+    volumes:
+      - appdata:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    image: ${REGISTRY}/glassbox-frontend:${IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      BACKEND_API_BASE: http://backend:8000
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
+  appdata:
+  caddy-data:
+  caddy-config:
