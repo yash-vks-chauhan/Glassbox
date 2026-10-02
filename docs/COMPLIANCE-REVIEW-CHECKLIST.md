@@ -21,3 +21,4 @@ Use this checklist when Compliance reviews a GlassBox decision replay.
 - Approve the advisor action only if the cited evidence supports it.
 - Request more evidence when support is weak or missing.
 - Document any exception path before client action.
+- Record the outcome in the review form, not only in the escalation note; reviews and corrections are appended to the decision's audit record and shown in its replay.

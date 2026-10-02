@@ -1,6 +1,6 @@
 # BYO Key Operations Runbook
 
-Use this runbook for advisor or tenant-provided model provider keys.
+Use this runbook for advisor or tenant-provided model provider keys. Only admins and owners can store keys unless `ALLOW_ADVISOR_BYO_KEYS=1`; the local evidence engine needs no key at all.
 
 ## Enrollment
 

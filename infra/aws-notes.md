@@ -200,6 +200,9 @@ with no clients or documents).
 
 - **Upgrades:** build and push a new image tag, update the task definition,
   redeploy. Migrations run as the new tasks start.
+- **Rollbacks:** redeploy the previous image tag with
+  `GLASSBOX_SKIP_MIGRATIONS=1` (an older image can't migrate a newer schema);
+  see [docs/DEPLOYMENT-ROLLBACK-RUNBOOK.md](../docs/DEPLOYMENT-ROLLBACK-RUNBOOK.md).
 - **Corpus changes:** the retrieval index is built into the backend image,
   so edit `backend/corpus/` and rebuild.
 - **Backups and audit data:** rely on RDS backups and point-in-time restore.

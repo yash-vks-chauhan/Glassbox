@@ -1,8 +1,8 @@
 # GlassBox — Product Revamp Plan (v1)
 
-> Status: **proposal, awaiting sign-off**.
+> Status: **implemented** (May–October 2026). Kept as the design record; the README describes the product as built.
 > Owner: design + product.
-> No implementation has started. This document is the alignment artifact before any code changes.
+> Differences from the plan: Admin is one page (`/app/admin`) rather than `/app/admin/*`; the auth stub became real authentication with tenants and MFA (open question 4 and 5 below); `/app/settings/security`, `/setup` and the password and invitation pages were added.
 
 ---
 
@@ -499,16 +499,16 @@ Each slice is shippable on its own and visibly different from the slice before. 
 
 ## 12. Definition of done (this revamp)
 
-- [ ] App and marketing live in separate route groups; no marketing copy on any `/app/*` page.
-- [ ] Sidebar IA matches Section 3.3.
-- [ ] New palette tokens (Section 7) applied; emerald removed from app chrome.
-- [ ] Advisor view is a threaded conversation with inline citations and evidence panel.
-- [ ] Compliance review is a filterable grid with claim/decide/SLA.
-- [ ] `/app/audit` exists (no 404), supports filters + CSV + PDF binder export.
-- [ ] Determinism is no longer a button advisors click; it's a metric on Insights.
-- [ ] Every metric tile has a target and a sparkline.
-- [ ] No first-person AI voice in any user-facing copy; no "REFUSED" alert.
-- [ ] All scenario cards / "operating contract" pills / inline FAQ removed from the app.
+- [x] App and marketing live in separate route groups; no marketing copy on any `/app/*` page.
+- [x] Sidebar IA matches Section 3.3.
+- [x] New palette tokens (Section 7) applied; emerald removed from app chrome.
+- [x] Advisor view is a threaded conversation with inline citations and evidence panel.
+- [x] Compliance review is a filterable grid with claim/decide/SLA.
+- [x] `/app/audit` exists (no 404), supports filters + CSV + PDF binder export.
+- [x] Determinism is no longer a button advisors click; it's a metric on Insights.
+- [x] Every metric tile has a target and a sparkline.
+- [x] No first-person AI voice in any user-facing copy; no "REFUSED" alert.
+- [x] All scenario cards / "operating contract" pills / inline FAQ removed from the app.
 
 ---
 

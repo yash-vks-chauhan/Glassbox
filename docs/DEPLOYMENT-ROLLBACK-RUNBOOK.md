@@ -16,11 +16,12 @@ If advisor answers are slow, unsupported, or failing eval expectations:
 
 For application regressions:
 
-1. Identify the last known-good deployment artifact or commit.
+1. Identify the last known-good deployment artifact or commit (image tag).
 2. Confirm database migrations are backward-compatible before rolling back code.
-3. Disable background jobs or manual eval runs if they depend on the new schema.
-4. Roll back the backend first, then the frontend if API contracts changed.
-5. Run login, advisor ask, escalation, and audit replay smoke tests.
+3. The backend image runs `alembic upgrade head` on start, and an older image doesn't know a newer revision, so it would fail to boot. Start the older image with `GLASSBOX_SKIP_MIGRATIONS=1` against the newer, backward-compatible schema. Avoid `alembic downgrade` in production: downgrades drop the tables and columns a migration added, which can delete reviews or thread context and break audit verification for decisions that used them.
+4. Disable background jobs or manual eval runs if they depend on the new schema (`DETERMINISM_SCHEDULER_ENABLED=0` stops the nightly determinism run).
+5. Roll back the backend first, then the frontend if API contracts changed.
+6. Run login, advisor ask, escalation, and audit replay smoke tests, and confirm `/audit/verify` still reports the chain intact.
 
 ## Communication
 
