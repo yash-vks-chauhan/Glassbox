@@ -1,0 +1,155 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (ruff, pytest on SQLite and Postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: glassbox
+          POSTGRES_PASSWORD: glassbox
+          POSTGRES_DB: glassbox_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U glassbox -d glassbox_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - run: pip install -r requirements-dev.txt pip-audit
+      - run: ruff check .
+      - name: Tests on SQLite
+        run: pytest -q
+      - name: Tests on Postgres
+        env:
+          GLASSBOX_TEST_DATABASE_URL: postgresql+psycopg://glassbox:glassbox@localhost:5432/glassbox_test
+        run: pytest -q
+      - name: Known vulnerabilities in runtime dependencies
+        run: pip-audit -r requirements.txt
+
+  frontend:
+    name: Frontend (lint, types, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Known vulnerabilities in runtime dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+  e2e:
+    name: End-to-end (Playwright)
+    runs-on: ubuntu-latest
+    env:
+      # A throwaway SQLite database and the free local evidence engine; no
+      # SMTP or model credentials exist in this job.
+      DATABASE_URL: sqlite:////tmp/glassbox-e2e/e2e.db
+      CHROMA_DIR: /tmp/glassbox-e2e/index
+      DEV_MAIL_DIR: /tmp/glassbox-e2e/mail
+      GLASSBOX_LOCAL_EVIDENCE_MODE: "1"
+      GLASSBOX_LOCAL_LLM: "1"
+      GLASSBOX_PRODUCTION_MODE: "0"
+      DETERMINISM_SCHEDULER_ENABLED: "0"
+      RATE_LIMIT_PER_MIN: "1000"
+      RATE_LIMIT_AUTH_PER_MIN: "1000"
+      RATE_LIMIT_ASK_PER_MIN: "1000"
+      RATE_LIMIT_DEFAULT_PER_MIN: "1000"
+      # The specs seed users through the backend's Python.
+      PYTHON: python
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: pip install -r backend/requirements.txt
+      - run: npm ci
+        working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      - name: Start the API and the web app
+        run: |
+          mkdir -p /tmp/glassbox-e2e/mail
+          (cd backend && alembic upgrade head)
+          (cd backend && nohup uvicorn app.main:app --port 8000 > /tmp/glassbox-e2e/backend.log 2>&1 &)
+          (cd frontend && nohup npx next start -p 3000 > /tmp/glassbox-e2e/frontend.log 2>&1 &)
+          for _ in $(seq 1 60); do
+            curl -sf http://localhost:8000/health > /dev/null && curl -sf http://localhost:3000/ > /dev/null && exit 0
+            sleep 1
+          done
+          echo "servers did not come up" >&2
+          exit 1
+      - run: npx playwright test --reporter=line
+        working-directory: frontend
+      - name: Keep traces and server logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-results
+          path: |
+            frontend/test-results/
+            /tmp/glassbox-e2e/*.log
+          retention-days: 7
+
+  docker:
+    name: Docker images and Compose stack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build and start the stack
+        run: docker compose up --build --detach --wait --wait-timeout 180
+      - name: Smoke test
+        run: |
+          curl -sf http://localhost:8000/health
+          curl -sf -o /dev/null http://localhost:3000/login
+      - name: Logs
+        if: failure()
+        run: docker compose logs
+      - if: always()
+        run: docker compose down --volumes
