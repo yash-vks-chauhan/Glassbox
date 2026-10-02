@@ -76,7 +76,7 @@ def prepare_thread_for_ask(
         raise HTTPException(status_code=404, detail="Thread not found")
     if thread.client_id != client_id:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"This thread is about client {thread.client_id}.",
         )
     previous = db.scalar(

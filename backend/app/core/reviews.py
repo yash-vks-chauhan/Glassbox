@@ -64,7 +64,7 @@ def submit_review(
     unknown = sorted({v.claim_id for v in payload.claim_verdicts} - claims_by_id.keys())
     if unknown:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Claims not part of this decision: {', '.join(unknown)}",
         )
 

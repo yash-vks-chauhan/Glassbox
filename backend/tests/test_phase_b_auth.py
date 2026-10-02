@@ -273,6 +273,15 @@ def test_successful_login_clears_failure_counter(client):
 # ---------------------------------------------------------------------------
 
 
+def _post_with_refresh_cookie(client, path: str, refresh_cookie: str):
+    """POST carrying exactly this refresh token. The client's cookie jar
+    would otherwise send whichever one the last response set, and these
+    tests replay old tokens on purpose."""
+    client.cookies.clear()
+    client.cookies.set(get_settings().refresh_cookie_name, refresh_cookie)
+    return client.post(path)
+
+
 def test_refresh_rotates_token_and_returns_new_access(client):
     pw = "Sup3rSecur3-Pass!"
     user = _make_user(password=pw)
@@ -284,10 +293,7 @@ def test_refresh_rotates_token_and_returns_new_access(client):
     refresh_cookie = login_res.cookies.get(get_settings().refresh_cookie_name)
     assert refresh_cookie
 
-    res = client.post(
-        "/auth/refresh",
-        cookies={get_settings().refresh_cookie_name: refresh_cookie},
-    )
+    res = _post_with_refresh_cookie(client, "/auth/refresh", refresh_cookie)
     assert res.status_code == 200
     body = res.json()
     assert body["access_token"] != login_res.json()["access_token"]
@@ -318,16 +324,16 @@ def test_refresh_reuse_revokes_entire_family(client):
     first_refresh = login_res.cookies.get(cookie_name)
 
     # Legitimate rotation.
-    r1 = client.post("/auth/refresh", cookies={cookie_name: first_refresh})
+    r1 = _post_with_refresh_cookie(client, "/auth/refresh", first_refresh)
     assert r1.status_code == 200
     second_refresh = r1.cookies.get(cookie_name)
 
     # Attacker replays the FIRST (now-revoked) refresh -> 401 + family burned.
-    r2 = client.post("/auth/refresh", cookies={cookie_name: first_refresh})
+    r2 = _post_with_refresh_cookie(client, "/auth/refresh", first_refresh)
     assert r2.status_code == 401
 
     # The legit current token is now also dead.
-    r3 = client.post("/auth/refresh", cookies={cookie_name: second_refresh})
+    r3 = _post_with_refresh_cookie(client, "/auth/refresh", second_refresh)
     assert r3.status_code == 401
 
     with SessionLocal() as db:
@@ -363,7 +369,7 @@ def test_logout_revokes_refresh_and_clears_cookie(client):
     )
     refresh_cookie = login_res.cookies.get(cookie_name)
 
-    res = client.post("/auth/logout", cookies={cookie_name: refresh_cookie})
+    res = _post_with_refresh_cookie(client, "/auth/logout", refresh_cookie)
     assert res.status_code == 204
     assert (
         f'{cookie_name}=""' in res.headers.get("set-cookie", "")
@@ -371,7 +377,7 @@ def test_logout_revokes_refresh_and_clears_cookie(client):
     )
 
     # Refresh now fails.
-    after = client.post("/auth/refresh", cookies={cookie_name: refresh_cookie})
+    after = _post_with_refresh_cookie(client, "/auth/refresh", refresh_cookie)
     assert after.status_code == 401
 
 
@@ -561,7 +567,7 @@ def test_password_reset_round_trip_and_invalidates_sessions(client):
     assert res.status_code == 204
 
     # Old refresh dead.
-    bad = client.post("/auth/refresh", cookies={cookie_name: refresh_cookie})
+    bad = _post_with_refresh_cookie(client, "/auth/refresh", refresh_cookie)
     assert bad.status_code == 401
 
     # Login with the new password works.
