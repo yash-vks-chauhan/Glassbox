@@ -1,8 +1,9 @@
-# Runtime dependencies of the API. Lower bounds are the versions the test
-# suite runs against; upper bounds stop before the next major version.
+# Runtime dependencies of the API. Floors are versions the suite passes on,
+# raised past any with a known advisory; ceilings stop before the next major
+# version. A fresh install (and CI) gets the newest versions in range.
 fastapi>=0.136,<1
 uvicorn>=0.47,<1
-pydantic-settings>=2.14,<3
+pydantic-settings>=2.14.2,<3
 sqlalchemy>=2.0.49,<3
 alembic>=1.18,<2
 psycopg[binary]>=3.3,<4
@@ -14,9 +15,14 @@ httpx>=0.28,<1
 python-dotenv>=1.2,<2
 numpy>=2.4,<3
 argon2-cffi>=25.1
-pyjwt>=2.13,<3
+pyjwt>=2.15,<3
 pyotp>=2.9,<3
 email-validator>=2.3,<3
-cryptography>=48
+cryptography>=50
 structlog>=25.5
 fpdf2>=2.8,<3
+# Not used directly, but floored above versions with known advisories so an
+# existing environment can't keep them (FastAPI itself only needs
+# starlette>=0.46).
+starlette>=1.3.1,<2
+anyio>=4.14.2,<5

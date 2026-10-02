@@ -4,4 +4,4 @@
 #   --extra-index-url https://download.pytorch.org/whl/cpu
 # The default "hash" backend needs none of this.
 -r requirements.txt
-sentence-transformers>=5.5,<6
+sentence-transformers>=5.6,<6
