@@ -7,8 +7,8 @@ It costs about $14 a month. For a larger, managed setup see
 
 | | |
 |---|---|
-| Web app | <https://app.15-252-203-137.sslip.io> |
-| API | <https://api.15-252-203-137.sslip.io> (`/health`) |
+| Web app | <https://glassbox.15-252-203-137.sslip.io> |
+| API | <https://api.glassbox.15-252-203-137.sslip.io> (`/health`) |
 | Region | `ap-south-1` (Mumbai) |
 | Server | `i-09c39045ae4d2e6e6`, `t4g.small` (Graviton, 2 vCPU, 2 GB) on Amazon Linux 2023, 20 GB gp3 |
 | Address | Elastic IP `15.252.203.137`. [sslip.io](https://sslip.io) turns `*.15-252-203-137.sslip.io` into that IP, so no domain is needed |
@@ -42,7 +42,7 @@ From the repo root, with the `glassbox` AWS profile signed in
 
 ```bash
 TAG=$(git rev-parse --short HEAD)
-AWS_PROFILE=glassbox infra/single-server/push-images.sh $TAG https://api.15-252-203-137.sslip.io
+AWS_PROFILE=glassbox infra/single-server/push-images.sh $TAG https://api.glassbox.15-252-203-137.sslip.io
 
 aws ssm send-command --profile glassbox --region ap-south-1 \
   --instance-ids i-09c39045ae4d2e6e6 --document-name AWS-RunShellScript \
@@ -73,6 +73,22 @@ aws ssm put-parameter --profile glassbox --region ap-south-1 --overwrite \
 owner. Delete it once each workspace has its owner:
 `aws ssm delete-parameter --profile glassbox --region ap-south-1 --name /glassbox/prod/BOOTSTRAP_SETUP_KEY`,
 then redeploy.
+
+## Changing the address
+
+The web app has the API's address built into it, so a new hostname needs a
+rebuild:
+
+1. Point the new names at `15.252.203.137`. With a real domain, add an `A`
+   record for the app's name and one for `api.` under it. The `sslip.io`
+   names already resolve.
+2. Update `/glassbox/prod/APP_HOST` and `/glassbox/prod/API_HOST`.
+3. Run `push-images.sh` with the new `https://<API_HOST>`, then `deploy.sh`
+   with the new tag. Caddy fetches certificates for the new names on start,
+   and `FRONTEND_ORIGIN` (CORS and links in emails) follows `APP_HOST`.
+
+The old names stop working; sessions don't carry over, so users sign in
+again.
 
 ## Costs
 

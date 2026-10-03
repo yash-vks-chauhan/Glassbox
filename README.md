@@ -100,8 +100,8 @@ from `backend/`.
 
 ## Deploy it
 
-It's live at **<https://app.15-252-203-137.sslip.io>** (API:
-<https://api.15-252-203-137.sslip.io/health>). It runs on one Graviton
+It's live at **<https://glassbox.15-252-203-137.sslip.io>** (API:
+<https://api.glassbox.15-252-203-137.sslip.io/health>). It runs on one Graviton
 `t4g.small` server in AWS Mumbai for about $14 a month. Caddy handles HTTPS,
 Postgres runs in Docker, secrets live in SSM Parameter Store, and the disk
 is snapshotted daily. [infra/single-server/](infra/single-server/README.md)
