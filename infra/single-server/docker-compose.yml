@@ -64,6 +64,8 @@ services:
       SMTP_USE_TLS: ${SMTP_USE_TLS:-1}
       BOOTSTRAP_SETUP_KEY: ${BOOTSTRAP_SETUP_KEY:-}
       ACCESS_REQUEST_NOTIFY_EMAIL: ${ACCESS_REQUEST_NOTIFY_EMAIL:-}
+      # One-click "Try as advisor / compliance" for visitors.
+      DEMO_LOGIN_ENABLED: ${DEMO_LOGIN_ENABLED:-0}
     volumes:
       - appdata:/data
     depends_on:
