@@ -99,7 +99,7 @@ optional model routes.
 | Backend, Postgres | `GLASSBOX_TEST_DATABASE_URL=postgresql+psycopg://…/glassbox_test ../.venv/bin/pytest` | 254 passed |
 | Frontend | `cd frontend && npm run lint && npm run typecheck && npm run build` | clean |
 | End to end | `cd frontend && npm run test:e2e` (against a running stack) | 11 Playwright specs |
-| Dependencies | `npm audit` in `frontend/`, `../.venv/bin/pip-audit -r requirements.txt` in `backend/` | no known vulnerabilities |
+| Dependencies | `npm audit --omit=dev` in `frontend/`, `../.venv/bin/pip-audit -r requirements.txt` in `backend/` | none known in what ships. Tailwind's build-time `braces` has an advisory with no fix yet ([GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm)); it only affects glob patterns, which our build config sets |
 
 The backend suite is hermetic: a throwaway database, index and mail
 directory, and it never reads your `.env`. CI
