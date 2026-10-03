@@ -522,6 +522,10 @@ def request_password_reset(
             metadata={"email": email},
         )
         return
+    from app.core.auth.demo import is_demo_user  # avoids an import cycle
+
+    if is_demo_user(user):
+        return  # the shared demo accounts have no inbox and no password to reset
     settings = get_settings()
     token_plain = generate_refresh_token()  # reuse 256-bit generator
     db.add(

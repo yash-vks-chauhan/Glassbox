@@ -144,6 +144,18 @@ class MeResponse(BaseModel):
     role: str
     mfa_enrolled: bool
     can_use_byo_keys: bool = False
+    # One of the shared demo accounts (app/core/auth/demo.py).
+    is_demo: bool = False
+
+
+class DemoLoginRequest(StrictModel):
+    role: Literal["advisor", "compliance"]
+
+
+class DemoInfo(BaseModel):
+    enabled: bool
+    workspace: str | None = None
+    roles: list[str] = []
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Try the live demo
+    url: https://glassbox.15-252-203-137.sslip.io/login
+    about: One click, no signup. Explore as an advisor or as compliance.
+  - name: Report a security vulnerability
+    url: https://github.com/yash-vks-chauhan/Glassbox/security/advisories/new
+    about: Please report security problems privately, not as an issue.

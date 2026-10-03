@@ -93,6 +93,8 @@ jobs:
       RATE_LIMIT_DEFAULT_PER_MIN: "1000"
       # Lets the first-run setup spec create a workspace (throwaway DB).
       BOOTSTRAP_SETUP_KEY: e2e-bootstrap-setup-key
+      # Exercises the public one-click demo sign-in.
+      DEMO_LOGIN_ENABLED: "1"
       # The specs seed users through the backend's Python.
       PYTHON: python
       NEXT_TELEMETRY_DISABLED: "1"

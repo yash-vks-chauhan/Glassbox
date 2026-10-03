@@ -1,0 +1,38 @@
+name: Bug report
+description: Something in GlassBox doesn't work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting it. For security problems, use the [private security report](https://github.com/yash-vks-chauhan/Glassbox/security/advisories/new) instead.
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where did it happen?
+      options:
+        - The live demo
+        - Running it locally (Docker Compose)
+        - Running it locally (without Docker)
+        - My own deployment
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+      placeholder: I asked "Can client C001 put 40% into fund F100?" as the demo advisor and…
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open …
+        2. Click …
+  - type: textarea
+    id: details
+    attributes:
+      label: Anything else
+      description: Browser, decision ID from the audit log, screenshots, logs (with secrets removed).

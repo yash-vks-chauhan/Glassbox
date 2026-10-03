@@ -8,12 +8,14 @@ import { PageContainer, PageHeader } from "@/components/PageContainer";
 import { NewClientDialog } from "@/components/clients/NewClientDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useAuth } from "@/lib/auth-context";
 import { formatAUM } from "@/lib/clients";
 import { useClients } from "@/lib/clients-hooks";
 import { cn } from "@/lib/utils";
 
 export default function ClientsListPage() {
   const { clients } = useClients();
+  const { user } = useAuth();
   const [query, setQuery] = useState("");
   const [risk, setRisk] = useState<"all" | "conservative" | "moderate" | "aggressive">("all");
 
@@ -37,7 +39,7 @@ export default function ClientsListPage() {
         eyebrow="Roster"
         title="Clients"
         description="Each conversation is anchored to a client. Every answer travels with their IPS version, jurisdiction, and exclusions."
-        actions={<NewClientDialog />}
+        actions={user?.is_demo ? null : <NewClientDialog />}
       />
 
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">

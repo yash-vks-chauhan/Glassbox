@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
+from app.core.auth.demo import is_demo_user
 from app.core.auth.deps import require_role
 from app.db import get_db
 from app.models_db import ClientRecord, Decision, User
@@ -123,6 +124,11 @@ def create_client(
     db: Session = Depends(get_db),
     user: User = Depends(require_role(*_WRITE_ROLES)),
 ) -> ClientOut:
+    if is_demo_user(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="The demo workspace's client list is fixed.",
+        )
     existing = db.scalar(
         select(ClientRecord).where(
             ClientRecord.tenant_id == user.tenant_id,

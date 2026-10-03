@@ -1,0 +1,73 @@
+name: Deploy
+
+# Rolls main out to the live server after CI passes on it (or on demand).
+# Shows up under Deployments → production, with the site's URL.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to AWS
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event != 'pull_request')
+    # Native arm64, like the Graviton server.
+    runs-on: ubuntu-24.04-arm
+    environment:
+      name: production
+      url: ${{ vars.APP_URL }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ap-south-1
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.SHA }}
+      - run: echo "TAG=${SHA::7}" >> "$GITHUB_ENV"
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push the images
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          API_BASE_URL: ${{ vars.API_BASE_URL }}
+        run: |
+          docker build -t "$REGISTRY/glassbox-backend:$TAG" backend
+          docker build --build-arg NEXT_PUBLIC_API_BASE="$API_BASE_URL" \
+            -t "$REGISTRY/glassbox-frontend:$TAG" frontend
+          docker push --quiet "$REGISTRY/glassbox-backend:$TAG"
+          docker push --quiet "$REGISTRY/glassbox-frontend:$TAG"
+      - name: Roll out on the server
+        run: infra/single-server/remote-deploy.sh "${{ vars.INSTANCE_ID }}" "$TAG"
+      - name: Smoke test
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          API_BASE_URL: ${{ vars.API_BASE_URL }}
+        run: |
+          for _ in $(seq 1 30); do
+            if curl -fsS "$API_BASE_URL/health" && curl -fsS -o /dev/null "$APP_URL/login"; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "the site did not come back after the deploy" >&2
+          exit 1

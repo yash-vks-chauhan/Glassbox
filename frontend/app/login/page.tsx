@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ArrowRight, Loader2, ScanSearch, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 
+import { DemoAccess } from "@/components/auth/DemoAccess";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -118,6 +119,8 @@ function LoginInner() {
         <p className="mt-1 text-sm text-muted-foreground">
           Use your assigned workspace credentials.
         </p>
+
+        <DemoAccess />
 
         {error ? (
           <div

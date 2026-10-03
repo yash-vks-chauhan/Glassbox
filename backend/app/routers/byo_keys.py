@@ -67,7 +67,11 @@ _BYO_KEY_ROLES = frozenset({"admin", "owner"})
 
 def byo_keys_allowed(user: User) -> bool:
     """Admins and owners may always use their own model key; other roles
-    only when ALLOW_ADVISOR_BYO_KEYS is on."""
+    only when ALLOW_ADVISOR_BYO_KEYS is on. Never the shared demo users."""
+    from app.core.auth.demo import is_demo_user  # avoids an import cycle
+
+    if is_demo_user(user):
+        return False
     return user.role in _BYO_KEY_ROLES or get_settings().allow_advisor_byo_keys
 
 

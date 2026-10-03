@@ -1,10 +1,35 @@
 # GlassBox — An Auditable Wealth-Advisory AI Agent
 
+[![CI](https://github.com/yash-vks-chauhan/Glassbox/actions/workflows/ci.yml/badge.svg)](https://github.com/yash-vks-chauhan/Glassbox/actions/workflows/ci.yml)
+[![Deploy](https://github.com/yash-vks-chauhan/Glassbox/actions/workflows/deploy.yml/badge.svg)](https://github.com/yash-vks-chauhan/Glassbox/actions/workflows/deploy.yml)
+[![Live demo](https://img.shields.io/badge/live%20demo-try%20it-1f3a5f)](https://glassbox.15-252-203-137.sslip.io/login)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 > An AI agent that answers financial advisory & compliance questions **only from cited sources**, **refuses to guess**, **logs every decision for audit**, and **measures its own trustworthiness on a live dashboard.**
 >
 > Built for the real problem banks (like UBS) have in 2026: not "make a smarter AI" but "make an AI we can actually trust, defend, and deploy."
 
+**[Try the live demo →](https://glassbox.15-252-203-137.sslip.io/login)** One click, no signup.
+
 ![An advisor asks whether a client can put 40% into one fund; GlassBox flags it with the mandate clause and factsheets it relied on](docs/screenshots/ask.png)
+
+## Try it
+
+Open the [live demo](https://glassbox.15-252-203-137.sslip.io/login) and
+choose a seat:
+
+- **Try as an advisor.** You land on Müller Family Office (C001). Try:
+  - *Can client C001 put 40% into fund F100?* GlassBox flags it with the
+    25% single-position limit from the client's IPS, and cites each claim.
+  - *What about F200?* A follow-up: it answers in context and shows the
+    question it actually answered.
+  - *What is the capital gains tax rate in Germany?* It refuses, because no
+    approved source covers it, and offers escalation to compliance.
+- **Try as compliance.** Work the review queue, open a decision's replay,
+  label claims, check the audit chain, and export the PDF binder.
+
+The demo workspace is shared, so other visitors see what you ask there.
+The demo accounts can't change their sign-in settings or the client list.
 
 ## What's in the box
 
@@ -70,11 +95,11 @@ optional model routes.
 
 | What | Command | Now |
 |---|---|---|
-| Backend, SQLite | `cd backend && ../.venv/bin/pytest` | 243 passed, 5 skipped (Postgres-only) |
-| Backend, Postgres | `GLASSBOX_TEST_DATABASE_URL=postgresql+psycopg://…/glassbox_test ../.venv/bin/pytest` | 248 passed |
+| Backend, SQLite | `cd backend && ../.venv/bin/pytest` | 249 passed, 5 skipped (Postgres-only) |
+| Backend, Postgres | `GLASSBOX_TEST_DATABASE_URL=postgresql+psycopg://…/glassbox_test ../.venv/bin/pytest` | 254 passed |
 | Frontend | `cd frontend && npm run lint && npm run typecheck && npm run build` | clean |
-| End to end | `cd frontend && npm run test:e2e` (against a running stack) | 10 Playwright specs |
-| Dependencies | `npm audit` in `frontend/`, `../.venv/bin/pip-audit -r requirements.txt` in `backend/` | no known vulnerabilities |
+| End to end | `cd frontend && npm run test:e2e` (against a running stack) | 11 Playwright specs |
+| Dependencies | `npm audit --omit=dev` in `frontend/`, `../.venv/bin/pip-audit -r requirements.txt` in `backend/` | none known in what ships. Tailwind's build-time `braces` has an advisory with no fix yet ([GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm)); it only affects glob patterns, which our build config sets |
 
 The backend suite is hermetic: a throwaway database, index and mail
 directory, and it never reads your `.env`. CI
@@ -100,17 +125,28 @@ from `backend/`.
 
 ## Deploy it
 
-It's live at **<https://app.15-252-203-137.sslip.io>** (API:
-<https://api.15-252-203-137.sslip.io/health>). It runs on one Graviton
+It's live at **<https://glassbox.15-252-203-137.sslip.io>** (API:
+<https://api.glassbox.15-252-203-137.sslip.io/health>). It runs on one Graviton
 `t4g.small` server in AWS Mumbai for about $14 a month. Caddy handles HTTPS,
 Postgres runs in Docker, secrets live in SSM Parameter Store, and the disk
 is snapshotted daily. [infra/single-server/](infra/single-server/README.md)
 has the files and the steps to update or remove it.
 
+Every change that passes CI on `main` is deployed by the
+[Deploy workflow](.github/workflows/deploy.yml): arm64 images to ECR, a
+rollout over SSM, and a smoke test. AWS access is through OIDC, with no
+stored keys. Each run is listed under the repository's
+[Deployments](https://github.com/yash-vks-chauhan/Glassbox/deployments).
+
 Both images run as non-root, have health checks, and migrate on start
 safely even with several replicas. For a managed, multi-server setup (ECS
 Fargate, RDS PostgreSQL, an ALB, Secrets Manager), follow
 [infra/aws-notes.md](infra/aws-notes.md).
+
+## License
+
+[MIT](LICENSE). Use it, fork it, build on it. Security reports go through
+[SECURITY.md](SECURITY.md).
 
 ## More
 
