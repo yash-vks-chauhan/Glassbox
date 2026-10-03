@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.core.auth import demo as demo_auth
 from app.core.auth import service as auth_service
 from app.core.auth.deps import current_user, require_role
 from app.core.auth.passwords import WeakPasswordError
@@ -32,6 +33,7 @@ from app.schemas import (
     BootstrapBeginResponse,
     BootstrapCompleteRequest,
     BootstrapCompleteResponse,
+    DemoLoginRequest,
     ForgotPasswordRequest,
     InviteRequest,
     LoginRequest,
@@ -55,6 +57,12 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 _GENERIC_LOGIN_ERROR = "Invalid email, password, or MFA code."
+DEMO_ACCOUNT_LOCKED = "The demo accounts' sign-in settings can't be changed."
+
+
+def _refuse_for_demo_user(user: User) -> None:
+    if demo_auth.is_demo_user(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=DEMO_ACCOUNT_LOCKED)
 
 
 def _set_refresh_cookie(response: Response, *, plaintext: str) -> None:
@@ -150,6 +158,33 @@ def login(
     )
     response = JSONResponse(status_code=200, content=body.model_dump())
     _set_refresh_cookie(response, plaintext=result.refresh_token)
+    return response
+
+
+@router.post("/demo-login")
+def demo_login(
+    payload: DemoLoginRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Sign in as the shared demo advisor or compliance user (public
+    showcase; off unless DEMO_LOGIN_ENABLED=1). Same response as /login."""
+    try:
+        access, refresh_plain = demo_auth.demo_login(
+            db,
+            role=payload.role,
+            ip=_client_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        )
+    except demo_auth.DemoUnavailable:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="The demo is not available.")
+    db.commit()
+    body = LoginResponse(
+        access_token=access,
+        expires_in=get_settings().access_token_ttl_seconds,
+    )
+    response = JSONResponse(status_code=200, content=body.model_dump())
+    _set_refresh_cookie(response, plaintext=refresh_plain)
     return response
 
 
@@ -300,6 +335,7 @@ def mfa_enroll(
     user: User = Depends(current_user),
 ):
     """Enroll MFA for the *currently authenticated* user. Self-only."""
+    _refuse_for_demo_user(user)
     challenge = auth_service.begin_mfa_enrollment(db, user=user)
     db.commit()
     return MFAEnrollResponse(
@@ -313,6 +349,7 @@ def mfa_verify(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ):
+    _refuse_for_demo_user(user)
     try:
         recovery = auth_service.complete_mfa_enrollment(db, user=user, code=payload.code)
     except auth_service.InvalidCredentials:
@@ -441,4 +478,5 @@ def me(
         role=user.role,
         mfa_enrolled=user.mfa_enrolled,
         can_use_byo_keys=byo_keys_allowed(user),
+        is_demo=demo_auth.is_demo_user(user),
     )

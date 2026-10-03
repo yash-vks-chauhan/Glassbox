@@ -80,6 +80,12 @@ export default function SettingsSecurityPage() {
         description="Manage your password, two-factor authentication, BYO API keys, and active sessions."
       />
 
+      {user?.is_demo ? (
+        <div className="rounded-md border bg-card px-4 py-3 text-sm text-muted-foreground">
+          This is a shared demo account. Its password, two-factor settings, model keys and
+          sessions are fixed so every visitor gets the same demo.
+        </div>
+      ) : (
       <div className="grid gap-6 lg:grid-cols-2">
         <ChangePasswordCard />
         <TwoFactorCard onChanged={refreshUser} />
@@ -99,6 +105,7 @@ export default function SettingsSecurityPage() {
           }}
         />
       </div>
+      )}
 
       {user ? (
         <div className="mt-6 rounded-md border border-dashed bg-card/40 px-4 py-2.5 text-xs text-muted-foreground">

@@ -194,6 +194,10 @@ class Settings(BaseSettings):
     bootstrap_setup_key: str | None = Field(
         default=None, alias="BOOTSTRAP_SETUP_KEY"
     )
+    # Public showcase: "Try as advisor / compliance" buttons that sign
+    # visitors in to this workspace without an account (app/core/auth/demo.py).
+    demo_login_enabled: bool = Field(default=False, alias="DEMO_LOGIN_ENABLED")
+    demo_tenant_slug: str = Field(default="demo", alias="DEMO_TENANT_SLUG")
     # Bring-your-own model keys are an admin/owner tool by default. Set to 1
     # to let advisors and compliance users store and use their own key.
     allow_advisor_byo_keys: bool = Field(default=False, alias="ALLOW_ADVISOR_BYO_KEYS")

@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from app.core.auth.demo import is_demo_user
 from app.core.auth.deps import require_role
 from app.core.auth.service import VALID_ROLES
 from app.core.security.logging import log_security_event
@@ -276,6 +277,14 @@ class ChangePasswordRequest(BaseModel):
 self_router = APIRouter(prefix="/users/me", tags=["users"])
 
 
+def _refuse_for_demo_user(user: User) -> None:
+    if is_demo_user(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="The demo accounts' sign-in settings can't be changed.",
+        )
+
+
 @self_router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
 def change_own_password(
     payload: ChangePasswordRequest,
@@ -287,6 +296,7 @@ def change_own_password(
     from app.core.auth.passwords import hash_password, verify_password
 
     user = user_arg
+    _refuse_for_demo_user(user)
     if not verify_password(payload.current_password, user.password_hash):
         log_security_event(
             db,
@@ -352,6 +362,8 @@ def revoke_all_own_sessions(
     db: Session = Depends(get_db),
     user_arg=Depends(require_role("advisor", "compliance", "admin", "owner")),
 ):
+    # Signing the shared demo user out everywhere would sign out every visitor.
+    _refuse_for_demo_user(user_arg)
     db.execute(
         update(RefreshToken)
         .where(RefreshToken.user_id == user_arg.id, RefreshToken.revoked_at.is_(None))

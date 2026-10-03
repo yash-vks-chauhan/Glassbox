@@ -12,14 +12,24 @@ from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.core.auth.demo import DEMO_USERS, demo_tenant
 from app.core.auth.email import get_email_service
 from app.db import get_db
 from app.models_db import AccessRequest
-from app.schemas import AccessRequestCreate, AccessRequestReceived
+from app.schemas import AccessRequestCreate, AccessRequestReceived, DemoInfo
 
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/public", tags=["public"])
+
+
+@router.get("/demo", response_model=DemoInfo)
+def demo_info(db: Session = Depends(get_db)) -> DemoInfo:
+    """Whether the sign-in page should offer one-click demo access."""
+    tenant = demo_tenant(db)
+    if tenant is None:
+        return DemoInfo(enabled=False)
+    return DemoInfo(enabled=True, workspace=tenant.slug, roles=list(DEMO_USERS))
 
 
 @router.post(

@@ -259,6 +259,8 @@ export type MeResponse = {
   mfa_enrolled: boolean;
   /** Whether this user may store and use their own model API key. */
   can_use_byo_keys: boolean;
+  /** One of the shared demo accounts (public showcase). */
+  is_demo?: boolean;
 };
 
 const DEFAULT_API_BASE = "http://localhost:8000";
@@ -611,6 +613,30 @@ export function acceptInvite(token: string, password: string, displayName?: stri
     skipAuthRefresh: true,
     body: JSON.stringify({ token, password, display_name: displayName ?? null }),
   });
+}
+
+export type DemoRole = "advisor" | "compliance";
+
+export type DemoInfo = {
+  enabled: boolean;
+  workspace: string | null;
+  roles: DemoRole[];
+};
+
+/** Whether this server offers one-click demo access (public showcase). */
+export function getDemoInfo() {
+  return request<DemoInfo>("/public/demo", { skipAuthRefresh: true });
+}
+
+/** Sign in as the shared demo advisor or compliance user. */
+export async function demoLogin(role: DemoRole): Promise<LoginResponse> {
+  const body = await request<LoginResponse>("/auth/demo-login", {
+    method: "POST",
+    skipAuthRefresh: true,
+    body: JSON.stringify({ role }),
+  });
+  setAccessToken(body.access_token);
+  return body;
 }
 
 export type BootstrapBeginRequest = {
